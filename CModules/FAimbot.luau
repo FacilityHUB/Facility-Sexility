@@ -1,0 +1,372 @@
+--!nocheck 
+--!nolint UnknownGlobal
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local ENTITY_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/Libraries/Entity.luau"
+
+local Entity
+
+local Aimbot = {
+    Enabled = false,
+    Active = false,
+    Target = nil,
+
+    Settings = {
+        Key = Enum.UserInputType.MouseButton2,
+        ToggleMode = false,
+
+        Mode = "Camera",
+        Smoothness = 0.25,
+        Sensitivity = 0.35,
+
+        Priority = "Cursor",
+        Parts = { "Head" },
+        RandomPart = false,
+        RandomInterval = 1,
+
+        MaxDistance = 2000,
+        TeamCheck = true,
+        WallCheck = false,
+        AliveCheck = true,
+
+        Fov = 120,
+        FovCheck = true,
+        FovVisible = true,
+        FovFilled = false,
+        FovThickness = 1,
+        FovColor = Color3.fromRGB(255, 255, 255),
+        FovLockColor = Color3.fromRGB(255, 70, 70),
+        FovTransparency = 0.4,
+
+        Prediction = false,
+        PredictionTime = 0.12,
+        PingPrediction = false,
+
+        Sticky = true,
+        StickyFov = 1.6,
+
+        TriggerBot = false,
+        TriggerDelay = 0.08,
+        TriggerCooldown = 0.25,
+    },
+
+    _connections = {},
+    _loaded = false,
+}
+
+local function viewportCenter()
+    local size = Camera.ViewportSize
+    return Vector2.new(size.X * 0.5, size.Y * 0.5)
+end
+
+local function cursorPoint()
+    local location = UserInputService:GetMouseLocation()
+    return Vector2.new(location.X, location.Y)
+end
+
+local function aimOrigin()
+    return Aimbot.Settings.Mode == "Mouse" and cursorPoint() or viewportCenter()
+end
+
+local function pingSeconds()
+    local value = 0
+    pcall(function()
+        value = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
+    end)
+    return value
+end
+
+function Aimbot:_fov()
+    if self._fovCircle then return self._fovCircle end
+
+    local circle = Drawing.new("Circle")
+    circle.Thickness = self.Settings.FovThickness
+    circle.Color = self.Settings.FovColor
+    circle.Filled = self.Settings.FovFilled
+    circle.Transparency = self.Settings.FovTransparency
+    circle.Radius = self.Settings.Fov
+    circle.Position = viewportCenter()
+    circle.Visible = false
+
+    self._fovCircle = circle
+    return circle
+end
+
+function Aimbot:_partOf(record)
+    local character = record.Character
+    if not character then return nil end
+
+    local name = self._currentPart or self.Settings.Parts[1] or "Head"
+
+    local part = character:FindFirstChild(name)
+    if part and part:IsA("BasePart") then return part end
+
+    part = character:FindFirstChild(name, true)
+    if part and part:IsA("BasePart") then return part end
+
+    return record.Head or record.RootPart
+end
+
+function Aimbot:_visible(record, part)
+    if not self.Settings.WallCheck then return true end
+
+    local origin = Camera.CFrame.Position
+    local target = part.Position
+
+    local params = self._rayParams
+    if not params then
+        params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.IgnoreWater = true
+        self._rayParams = params
+    end
+
+    local ignore = { record.Character }
+    if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
+    params.FilterDescendantsInstances = ignore
+
+    local hit = workspace:Raycast(origin, target - origin, params)
+    return hit == nil
+end
+
+function Aimbot:_predict(part)
+    if not self.Settings.Prediction then return part.Position end
+
+    local velocity = part.AssemblyLinearVelocity
+    if velocity.Magnitude < 0.1 then return part.Position end
+
+    local amount = self.Settings.PredictionTime
+    if self.Settings.PingPrediction then
+        amount = amount + pingSeconds()
+    end
+
+    return part.Position + velocity * amount
+end
+
+function Aimbot:_score(record, part, origin, radius)
+    local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return nil end
+
+    local flat = Vector2.new(screen.X, screen.Y)
+    local fromAim = (flat - origin).Magnitude
+
+    if self.Settings.FovCheck and fromAim > radius then return nil end
+
+    local distance = (Camera.CFrame.Position - part.Position).Magnitude
+    if distance > self.Settings.MaxDistance then return nil end
+
+    if not self:_visible(record, part) then return nil end
+
+    local priority = self.Settings.Priority
+    if priority == "Closest" then
+        return distance
+    elseif priority == "LowestHealth" then
+        return record.Health or math.huge
+    end
+
+    return fromAim
+end
+
+function Aimbot:_select()
+    if not Entity then return nil, nil end
+
+    local origin = aimOrigin()
+    local radius = self.Settings.Fov
+
+    local best, bestPart, bestScore = nil, nil, math.huge
+
+    if self.Settings.Sticky and self.Target then
+        local record = Entity:Get(self.Target)
+        if record and record.Alive then
+            local part = self:_partOf(record)
+            if part then
+                local score = self:_score(record, part, origin, radius * self.Settings.StickyFov)
+                if score then return record, part end
+            end
+        end
+        self.Target = nil
+    end
+
+    for _, record in ipairs(Entity:GetAll(self.Settings.TeamCheck)) do
+        if not self.Settings.AliveCheck or (record.Health or 1) > 0 then
+            local part = self:_partOf(record)
+            if part then
+                local score = self:_score(record, part, origin, radius)
+                if score and score < bestScore then
+                    best, bestPart, bestScore = record, part, score
+                end
+            end
+        end
+    end
+
+    return best, bestPart
+end
+
+function Aimbot:_aim(position)
+    local mode = self.Settings.Mode
+
+    if mode == "Camera" then
+        local goal = CFrame.new(Camera.CFrame.Position, position)
+        local smooth = math.clamp(self.Settings.Smoothness, 0.01, 1)
+        Camera.CFrame = Camera.CFrame:Lerp(goal, smooth)
+
+    elseif mode == "Mouse" then
+        if not mousemoverel then return end
+
+        local screen, onScreen = Camera:WorldToViewportPoint(position)
+        if not onScreen then return end
+
+        local delta = Vector2.new(screen.X, screen.Y) - cursorPoint()
+        local sensitivity = math.clamp(self.Settings.Sensitivity, 0.01, 1)
+        mousemoverel(delta.X * sensitivity, delta.Y * sensitivity)
+    end
+end
+
+function Aimbot:_trigger()
+    if not self.Settings.TriggerBot then return end
+    if self._triggering then return end
+
+    local now = tick()
+    if now - (self._lastTrigger or 0) < self.Settings.TriggerCooldown then return end
+
+    self._triggering = true
+    self._lastTrigger = now
+
+    task.spawn(function()
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            task.wait(self.Settings.TriggerDelay)
+            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        end)
+        self._triggering = false
+    end)
+end
+
+function Aimbot:SetKey(key)
+    self.Settings.Key = key
+end
+
+function Aimbot:SetFov(radius)
+    self.Settings.Fov = radius
+    if self._fovCircle then self._fovCircle.Radius = radius end
+end
+
+function Aimbot:Load(handler)
+    if self._loaded then return self end
+
+    Entity = handler or Entity
+    if not Entity then
+        Entity = loadstring(game:HttpGet(ENTITY_URL))()
+    end
+    if not Entity.Started then Entity:Start() end
+
+    self.Entity = Entity
+    self._currentPart = self.Settings.Parts[1]
+
+    local circle = self:_fov()
+
+    self._connections[1] = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if not self.Enabled then return end
+
+        local key = self.Settings.Key
+        local matches = input.UserInputType == key
+            or (typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and input.KeyCode == key)
+
+        if not matches then return end
+
+        if self.Settings.ToggleMode then
+            self.Active = not self.Active
+        else
+            self.Active = true
+        end
+    end)
+
+    self._connections[2] = UserInputService.InputEnded:Connect(function(input)
+        if self.Settings.ToggleMode then return end
+
+        local key = self.Settings.Key
+        local matches = input.UserInputType == key
+            or (typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and input.KeyCode == key)
+
+        if matches then self.Active = false end
+    end)
+
+    self._connections[3] = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        Camera = workspace.CurrentCamera
+    end)
+
+    local randomAccum = 0
+
+    self._connections[4] = RunService.RenderStepped:Connect(function(dt)
+        local settings = self.Settings
+
+        if settings.RandomPart and #settings.Parts > 1 then
+            randomAccum = randomAccum + dt
+            if randomAccum >= settings.RandomInterval then
+                randomAccum = 0
+                self._currentPart = settings.Parts[math.random(1, #settings.Parts)]
+            end
+        else
+            self._currentPart = settings.Parts[1]
+        end
+
+        circle.Visible = self.Enabled and settings.FovVisible
+        circle.Radius = settings.Fov
+        circle.Thickness = settings.FovThickness
+        circle.Filled = settings.FovFilled
+        circle.Transparency = settings.FovTransparency
+        circle.Position = aimOrigin()
+
+        if not self.Enabled or not self.Active then
+            self.Target = nil
+            circle.Color = settings.FovColor
+            return
+        end
+
+        local record, part = self:_select()
+
+        if not record or not part then
+            self.Target = nil
+            circle.Color = settings.FovColor
+            return
+        end
+
+        self.Target = record.Player
+        circle.Color = settings.FovLockColor
+
+        self:_aim(self:_predict(part))
+        self:_trigger()
+    end)
+
+    self._loaded = true
+    return self
+end
+
+function Aimbot:Unload()
+    if not self._loaded then return end
+
+    for _, connection in pairs(self._connections) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(self._connections)
+
+    if self._fovCircle then
+        pcall(function() self._fovCircle:Remove() end)
+        self._fovCircle = nil
+    end
+
+    self.Active = false
+    self.Target = nil
+    self._loaded = false
+end
+
+return Aimbot

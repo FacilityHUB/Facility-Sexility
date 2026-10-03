@@ -1,0 +1,238 @@
+--!nocheck
+--!nolint UnknownGlobal
+
+repeat task.wait() until game:IsLoaded()
+
+local StarterGui = game:GetService("StarterGui")
+
+local BRANCH = getgenv and getgenv().FacilityBranch or "main"
+
+local UI_BASE  = "https://raw.githubusercontent.com/FacilityHUB/UI-Facility/refs/heads/main/"
+local HUB_BASE = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/" .. BRANCH .. "/"
+
+local LOG_WEBHOOK = ""
+local DEV = getgenv and getgenv().FacilityDev == true
+
+local GAMES = {
+}
+
+local function notify(title, text, duration)
+	pcall(function()
+		StarterGui:SetCore("SendNotification", {
+			Title = title,
+			Text = text,
+			Duration = duration or 8,
+		})
+	end)
+end
+
+local function withTimeout(call, timeout)
+	local done, ok, result = false, false, nil
+
+	task.spawn(function()
+		ok, result = pcall(call)
+		done = true
+	end)
+
+	local deadline = tick() + (timeout or 8)
+	repeat task.wait() until done or tick() > deadline
+
+	if not done then return false, "timeout" end
+	return ok, result
+end
+
+local canWrite = false
+pcall(function()
+	canWrite = writefile ~= nil and readfile ~= nil and isfile ~= nil and makefolder ~= nil
+end)
+
+local function ensureFolders()
+	if not canWrite then return end
+	pcall(function()
+		if not isfolder("Facility") then makefolder("Facility") end
+	end)
+end
+
+local function fetch(base, path, timeout)
+	local url = base .. path
+
+	local ok, body = withTimeout(function()
+		local fine, result = pcall(game.HttpGet, game, url, true)
+		if fine and type(result) == "string" then return result end
+		return game:HttpGet(url)
+	end, timeout)
+
+	if ok and type(body) == "string" and #body > 64
+		and not body:find("404: Not Found", 1, true) then
+		return body
+	end
+
+	return nil, tostring(body)
+end
+
+local function run(source, label)
+	local chunk, err = loadstring(source)
+	if type(chunk) ~= "function" then
+		return false, "compile error in " .. label .. ": " .. tostring(err)
+	end
+
+	local finished, ok, runErr = false, false, nil
+
+	task.spawn(function()
+		ok, runErr = pcall(chunk)
+		finished = true
+	end)
+
+	local deadline = tick() + 3
+	repeat task.wait() until finished or tick() > deadline
+
+	if finished and not ok then
+		return false, "runtime error in " .. label .. ": " .. tostring(runErr)
+	end
+	return true
+end
+
+local function loadModule(base, path, label)
+	if DEV and canWrite then
+		local localPath = "facility_dev/" .. path:gsub("[/\\]", "_")
+		local source
+		pcall(function()
+			if isfile(localPath) then source = readfile(localPath) end
+		end)
+		if source then
+			local chunk = loadstring(source)
+			if chunk then
+				warn("Facility: " .. label .. " loaded from " .. localPath)
+				return chunk()
+			end
+		end
+	end
+
+	local source, err = fetch(base, path)
+	if not source then
+		error("Facility: could not load " .. label .. " (" .. tostring(err) .. ")", 0)
+	end
+
+	local chunk, compileErr = loadstring(source)
+	if type(chunk) ~= "function" then
+		error("Facility: " .. label .. " does not compile: " .. tostring(compileErr), 0)
+	end
+
+	return chunk()
+end
+
+if shared.Facility and shared.Facility.Loaded then
+	pcall(function() shared.Facility.Library:Destroy() end)
+	pcall(function() shared.Facility.Esp:Unload() end)
+	pcall(function() shared.Facility.Entity:Stop() end)
+	shared.Facility = nil
+end
+
+ensureFolders()
+
+local Library = loadModule(UI_BASE, "main.luau", "interface")
+Library.BaseUrl = UI_BASE
+
+local Entity = loadModule(HUB_BASE, "Libraries/Entity.luau", "entity handler")
+Entity:Start()
+
+shared.Facility = {
+	Loaded  = true,
+	Version = "1.0.0",
+	Dev     = DEV,
+
+	Library = Library,
+	Entity  = Entity,
+
+	UiBase  = UI_BASE,
+	HubBase = HUB_BASE,
+
+	Load = function(path, label)
+		return loadModule(HUB_BASE, path, label or path)
+	end,
+}
+
+shared.Facility.Esp = loadModule(HUB_BASE, "CModules/FEsp.luau", "esp")
+
+local okWebhook, Webhook = pcall(function()
+	return loadModule(HUB_BASE, "Libraries/Webhook.luau", "webhook")
+end)
+
+if okWebhook and type(Webhook) == "table" then
+	shared.Facility.Webhook = Webhook
+end
+
+if DEV then
+	warn("Facility: PlaceId " .. tostring(game.PlaceId)
+		.. ", GameId " .. tostring(game.GameId))
+end
+
+local entry = GAMES[game.GameId]
+local path, label
+
+if entry then
+	path = entry.Script
+	label = entry.Title
+else
+	path = "Games/" .. game.PlaceId .. ".luau"
+	label = "place " .. game.PlaceId
+end
+
+local source = fetch(HUB_BASE, path, 6)
+local supported = source ~= nil
+
+if DEV and canWrite and entry and entry.Dev then
+	pcall(function()
+		if isfile(entry.Dev) then
+			source = readfile(entry.Dev)
+			warn("Facility: game script loaded from " .. entry.Dev)
+		end
+	end)
+end
+
+if not source then
+	supported = false
+	warn("Facility: no script at " .. HUB_BASE .. path)
+	warn("Facility: PlaceId " .. tostring(game.PlaceId) .. ", GameId " .. tostring(game.GameId))
+
+	source = fetch(HUB_BASE, "Games/Universal.luau", 6)
+	label = "universal"
+
+	if not source then
+		notify("Facility", "No script for this game.", 10)
+		error("Facility: nothing at Games/" .. game.PlaceId
+			.. ".luau and no Games/Universal.luau", 0)
+	end
+end
+
+if Webhook and LOG_WEBHOOK ~= "" then
+	task.spawn(function()
+		local logger = Webhook.new(LOG_WEBHOOK, { Username = "Facility" })
+		logger:Player({
+			Title = supported and "Supported game" or "Unsupported game",
+			Color = supported and Webhook.Colors.Green or Webhook.Colors.Red,
+			Fields = {
+				{
+					Name = "Supported",
+					Value = supported and "Yes" or "No",
+					Inline = true,
+				},
+				{
+					Name = "Script",
+					Value = supported and path or "Games/Universal.luau",
+					Inline = true,
+				},
+			},
+		})
+	end)
+end
+
+local ok, err = run(source, label)
+
+if not ok then
+	notify("Facility", "Loading failed, see the console.", 10)
+	warn(err)
+	return
+end
+
+notify("Facility", "Loaded for " .. label .. ".", 5)
