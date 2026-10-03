@@ -1,5 +1,4 @@
---!nocheck
---!nolint UnknownGlobal
+
 
 local F       = shared.Facility
 local Library = F.Library
@@ -8,11 +7,25 @@ local Esp     = F.Esp
 
 local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
 
-local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/Libraries/Movement.luau"
+local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
 
-local Aimbot = loadstring(game:HttpGet(AIMBOT_URL))()
-local Movement = loadstring(game:HttpGet(MOVEMENT_URL))()
-Movement:Load()
+local function fetchModule(url, label)
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", "")))()
+	end)
+
+	if not ok or type(result) ~= "table" then
+		warn("Facility: could not load " .. label .. " from " .. url)
+		return nil
+	end
+
+	return result
+end
+
+local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
+local Movement = fetchModule(MOVEMENT_URL, "movement")
+
+if Movement then Movement:Load() end
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -181,6 +194,8 @@ task.spawn(function()
 	end
 end)
 
+if Movement then
+
 local flyBox = Movements:Section("Fly", 1)
 
 flyBox:Toggle({
@@ -345,6 +360,8 @@ otherBox:Toggle({
 			Callback = function(value) Movement.Settings.SpiderSpeed = value end,
 		})
 	end)
+
+end
 
 local espBox = Visuals:Section("Esp", 1)
 
