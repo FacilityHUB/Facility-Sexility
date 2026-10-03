@@ -1,4 +1,5 @@
-
+--!nocheck
+--!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -196,6 +197,9 @@ end)
 
 if Movement then
 
+Movement.Settings.WalkSpeedMode = "Velocity"
+Movement.Settings.JumpMode = "Humanoid"
+
 local flyBox = Movements:Section("Fly", 1)
 
 flyBox:Toggle({
@@ -250,19 +254,6 @@ speedBox:Slider({
 	end,
 })
 
-speedBox:Dropdown({
-	Text = "Mode",
-	Flag = "move_walkspeed_mode",
-	Options = { "Humanoid", "Velocity", "CFrame" },
-	Default = "Humanoid",
-	Callback = function(value)
-		Movement.Settings.WalkSpeedMode = value
-		if Library.Flags["move_walkspeed"] then
-			Movement:WalkSpeed(Movement.Settings.WalkSpeed, value)
-		end
-	end,
-})
-
 local jumpBox = Movements:Section("Jump", 2)
 
 jumpBox:Toggle({
@@ -284,19 +275,6 @@ jumpBox:Slider({
 	end,
 })
 
-jumpBox:Dropdown({
-	Text = "Mode",
-	Flag = "move_jumppower_mode",
-	Options = { "Humanoid", "Height" },
-	Default = "Humanoid",
-	Callback = function(value)
-		Movement.Settings.JumpMode = value
-		if Library.Flags["move_jumppower"] then
-			Movement:JumpPower(Movement.Settings.JumpPower, value)
-		end
-	end,
-})
-
 jumpBox:Toggle({
 	Text = "Infinite Jump",
 	Flag = "move_infinite_jump",
@@ -313,14 +291,65 @@ otherBox:Toggle({
 	Callback = function(state) Movement:Noclip(state) end,
 })
 	:Keybind({ Default = "N", Flag = "move_noclip_key" })
-	:Gear(function(panel)
-		panel:Toggle({
-			Text = "Include Vehicle",
-			Flag = "move_noclip_vehicle",
-			Default = false,
-			Callback = function(state) Movement.Settings.NoclipVehicle = state end,
-		})
+
+otherBox:Toggle({
+	Text = "Noclip Vehicle",
+	Flag = "move_noclip_vehicle",
+	Default = false,
+	Callback = function(state) Movement.Settings.NoclipVehicle = state end,
+})
+
+local noFallApplied = false
+
+local function applyNoFallDamage()
+	if noFallApplied then return true end
+
+	if not (getrawmetatable and setreadonly and getnamecallmethod) then
+		Library:Error("Movement", "Your executor does not support metatable hooks.", 8)
+		return false
+	end
+
+	local ok, err = pcall(function()
+		local engine = ReplicatedStorage:WaitForChild("ACS_Engine", 5)
+		local events = engine and engine:WaitForChild("Events", 5)
+		local fdmg = events and events:WaitForChild("FDMG", 5)
+		if not fdmg then error("FDMG not found") end
+
+		local mt = getrawmetatable(game)
+		setreadonly(mt, false)
+
+		local oldNamecall = mt.__namecall
+		mt.__namecall = function(self, ...)
+			if noFallApplied and self == fdmg
+				and getnamecallmethod() == "FireServer" then
+				return nil
+			end
+			return oldNamecall(self, ...)
+		end
+
+		setreadonly(mt, true)
 	end)
+
+	if not ok then
+		Library:Error("Movement", "No fall damage failed: " .. tostring(err), 8)
+		return false
+	end
+
+	noFallApplied = true
+	return true
+end
+
+otherBox:Toggle({
+	Text = "No Fall Damage",
+	Flag = "move_no_fall",
+	Default = false,
+	Callback = function(state)
+		if state then
+			if not applyNoFallDamage() then return end
+		end
+		noFallApplied = state
+	end,
+})
 
 otherBox:Toggle({
 	Text = "Swim",
