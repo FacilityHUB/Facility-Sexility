@@ -47,6 +47,7 @@ local Window = Library:Window({
 	SectionTitleStyle = "border",
 })
 
+local Farm     = Window:Tab("Farm", "coins")
 local Combat   = Window:Tab("Combat", "crosshair")
 local Movements = Window:Tab("Movement", "move")
 local Visuals  = Window:Tab("Visuals", "eye")
@@ -199,6 +200,302 @@ if Movement then
 
 Movement.Settings.WalkSpeedMode = "Velocity"
 Movement.Settings.JumpMode = "Humanoid"
+
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local DEPOSIT_FORWARD = 25
+local DEPOSIT_LATERAL = { -20, 0, 20 }
+local CRATE_CYCLE = 3
+
+local AutoBuy = { Enabled = false, Colors = { "Vert", "Bleu" } }
+local AutoCrate = { Enabled = false, HoldTime = 15, Types = { "Air", "Land", "Naval" } }
+
+local farmStats = { bought = 0, collected = 0, sold = 0 }
+
+local function pressKey(keyCode)
+	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+	task.wait(0.06)
+	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function holdKey(keyCode, duration)
+	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+	task.wait(duration)
+	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function localRoot()
+	local character = LocalPlayer.Character
+	return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function waitForRoot(timeout)
+	local deadline = tick() + (timeout or 5)
+	repeat
+		local root = localRoot()
+		if root then return root end
+		task.wait(0.1)
+	until tick() > deadline
+	return nil
+end
+
+local function teleportTo(cframe)
+	local root = waitForRoot(3)
+	if not root or not cframe then return false end
+	pcall(function() root.CFrame = cframe end)
+	return true
+end
+
+local function findTycoon()
+	local container = workspace:FindFirstChild("Tycoon")
+	local list = container and container:FindFirstChild("Tycoons")
+	if not list then return nil end
+
+	for _, tycoon in ipairs(list:GetChildren()) do
+		local owner = tycoon:FindFirstChild("Owner")
+		if owner and owner.Value == LocalPlayer then return tycoon end
+	end
+	return nil
+end
+
+local function diamondPlateCFrame()
+	local tycoon = findTycoon()
+	if not tycoon then return nil end
+
+	local cframe
+	pcall(function()
+		local part = tycoon.Essentials["Oil Collector"].Collector.Part
+		if part and part:IsA("BasePart") then cframe = part.CFrame end
+	end)
+	return cframe
+end
+
+local function depositSpot(plate, index)
+	if not plate then return nil end
+	local lateral = DEPOSIT_LATERAL[index]
+	if not lateral then return nil end
+
+	return plate
+		+ (-plate.LookVector * DEPOSIT_FORWARD)
+		+ (plate.RightVector * lateral)
+end
+
+local function crateFolder()
+	local systems = workspace:FindFirstChild("Game Systems")
+	local collectibles = systems and systems:FindFirstChild("Collectibles Workspace")
+	return collectibles and collectibles:FindFirstChild("PartCrate")
+end
+
+local function cratePosition(crate)
+	if crate:IsA("BasePart") then return crate.Position end
+	if crate:IsA("Model") and crate.PrimaryPart then return crate.PrimaryPart.Position end
+	local part = crate:FindFirstChildWhichIsA("BasePart")
+	return part and part.Position or nil
+end
+
+local function matchesType(name)
+	for _, prefix in ipairs(AutoCrate.Types) do
+		if name:sub(1, #prefix + 1) == prefix .. "_" then return true end
+	end
+	return false
+end
+
+local function findCrate(plate, taken)
+	local folder = crateFolder()
+	if not folder then return nil end
+
+	local exclusion = DEPOSIT_FORWARD + 26
+
+	for _, crate in ipairs(folder:GetChildren()) do
+		if matchesType(crate.Name) and not taken[crate] then
+			local owner = crate:GetAttribute("Owner")
+			local position = cratePosition(crate)
+
+			if position and tostring(owner) ~= LocalPlayer.Name then
+				local clear = true
+				if plate then
+					clear = (position - plate.Position).Magnitude > exclusion
+				end
+				if clear then return crate, position end
+			end
+		end
+	end
+	return nil
+end
+
+local function isButtonValid(button)
+	local neon = button:FindFirstChild("Neon")
+	if not (neon and neon:IsA("BasePart")) then return false end
+
+	for _, color in ipairs(AutoBuy.Colors) do
+		if color == "Vert" and neon.Color == Color3.fromRGB(0, 255, 0) then return true end
+		if color == "Bleu" and neon.Color == Color3.fromRGB(4, 175, 235) then return true end
+	end
+	return false
+end
+
+local function buyButton(button)
+	local neon = button:FindFirstChild("Neon")
+	if not neon then return end
+
+	local elapsed = 0
+	while AutoBuy.Enabled and button.Parent and isButtonValid(button) and elapsed < 5 do
+		local root = localRoot()
+		if root then
+			pcall(function() root.CFrame = neon.CFrame + Vector3.new(0, 5, 0) end)
+		end
+		elapsed = elapsed + task.wait(0.4)
+	end
+
+	if button.Parent == nil or not isButtonValid(button) then
+		farmStats.bought = farmStats.bought + 1
+	end
+end
+
+local function runAutoBuy()
+	while AutoBuy.Enabled do
+		local tycoon = findTycoon()
+		local folder = tycoon and tycoon:FindFirstChild("UnpurchasedButtons")
+
+		if folder then
+			for _, button in ipairs(folder:GetChildren()) do
+				if not AutoBuy.Enabled then return end
+				if isButtonValid(button) then buyButton(button) end
+			end
+		end
+
+		if not AutoBuy.Enabled then return end
+		task.wait(1)
+	end
+end
+
+local function runAutoCrate()
+	while AutoCrate.Enabled do
+		local plate = diamondPlateCFrame()
+
+		if not plate then
+			Library:Warn("Farm", "Diamond plate not found, retrying.", 4)
+			task.wait(3)
+		else
+			local stored = {}
+			local taken = {}
+
+			for index = 1, CRATE_CYCLE do
+				if not AutoCrate.Enabled then return end
+
+				local crate, position = findCrate(plate, taken)
+				if not crate then
+					task.wait(2)
+					break
+				end
+
+				taken[crate] = true
+
+				if not teleportTo(CFrame.new(position)) then break end
+				task.wait(0.6)
+
+				local spot = depositSpot(plate, index)
+				if spot and teleportTo(spot) then
+					local waited = 0
+					while AutoCrate.Enabled and waited < AutoCrate.HoldTime do
+						waited = waited + task.wait(0.5)
+					end
+					if not AutoCrate.Enabled then return end
+
+					holdKey(Enum.KeyCode.X, 0.5)
+					task.wait(0.4)
+
+					table.insert(stored, spot)
+					farmStats.collected = farmStats.collected + 1
+				end
+			end
+
+			for _, spot in ipairs(stored) do
+				if not AutoCrate.Enabled then return end
+
+				if teleportTo(spot) then
+					task.wait(0.6)
+
+					if teleportTo(plate) then
+						task.wait(0.5)
+						holdKey(Enum.KeyCode.E, 1.2)
+						task.wait(0.4)
+						farmStats.sold = farmStats.sold + 1
+					end
+				end
+			end
+
+			if #stored == 0 then task.wait(2) end
+		end
+	end
+end
+
+local buyBox = Farm:Section("Auto Buy", 1)
+
+buyBox:Toggle({
+	Text = "Auto Buy",
+	Flag = "farm_autobuy",
+	Default = false,
+	Callback = function(state)
+		AutoBuy.Enabled = state
+		if state then task.spawn(runAutoBuy) end
+	end,
+})
+
+buyBox:Dropdown({
+	Text = "Colors",
+	Flag = "farm_autobuy_colors",
+	Options = { "Vert", "Bleu" },
+	Default = { "Vert", "Bleu" },
+	Multi = true,
+	Empty = "None",
+	Callback = function(selected)
+		AutoBuy.Colors = #selected > 0 and selected or { "Vert" }
+	end,
+})
+
+local crateBox = Farm:Section("Auto Crate", 2)
+
+crateBox:Toggle({
+	Text = "Auto Crate",
+	Flag = "farm_autocrate",
+	Default = false,
+	Callback = function(state)
+		AutoCrate.Enabled = state
+		if state then task.spawn(runAutoCrate) end
+	end,
+})
+
+crateBox:Dropdown({
+	Text = "Types",
+	Flag = "farm_crate_types",
+	Options = { "Air", "Land", "Naval" },
+	Default = { "Air", "Land", "Naval" },
+	Multi = true,
+	Empty = "None",
+	Callback = function(selected)
+		AutoCrate.Types = #selected > 0 and selected or { "Air" }
+	end,
+})
+
+crateBox:Slider({
+	Text = "Hold Time",
+	Flag = "farm_crate_hold",
+	Min = 5, Max = 40, Default = 15,
+	Suffix = " s",
+	Callback = function(value) AutoCrate.HoldTime = value end,
+})
+
+local statsBox = Farm:Section("Stats", 1)
+
+local statLine = statsBox:Label("-", { Style = "bright" })
+
+task.spawn(function()
+	while task.wait(1) do
+		statLine:Set(("Bought %d  |  Crates %d  |  Sold %d")
+			:format(farmStats.bought, farmStats.collected, farmStats.sold))
+	end
+end)
 
 local flyBox = Movements:Section("Fly", 1)
 
