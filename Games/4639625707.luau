@@ -1,5 +1,4 @@
---!nocheck
---!nolint UnknownGlobal
+
 
 local F       = shared.Facility
 local Library = F.Library
@@ -391,8 +390,13 @@ local function runAutoCrate()
 
 				taken[crate] = true
 
-				if not teleportTo(CFrame.new(position)) then break end
-				task.wait(0.6)
+				if not teleportTo(CFrame.new(position) + Vector3.new(0, 1, 0)) then break end
+				task.wait(0.5)
+
+				holdKey(Enum.KeyCode.E, 2)
+				holdKey(Enum.KeyCode.E, 2)
+
+				if not AutoCrate.Enabled then return end
 
 				local spot = depositSpot(plate, index)
 				if spot and teleportTo(spot) then
@@ -403,7 +407,7 @@ local function runAutoCrate()
 					if not AutoCrate.Enabled then return end
 
 					holdKey(Enum.KeyCode.X, 0.5)
-					task.wait(0.4)
+					task.wait(0.3)
 
 					table.insert(stored, spot)
 					farmStats.collected = farmStats.collected + 1
@@ -414,12 +418,15 @@ local function runAutoCrate()
 				if not AutoCrate.Enabled then return end
 
 				if teleportTo(spot) then
-					task.wait(0.6)
+					task.wait(0.5)
+					holdKey(Enum.KeyCode.E, 1)
+
+					if not AutoCrate.Enabled then return end
 
 					if teleportTo(plate) then
-						task.wait(0.5)
-						holdKey(Enum.KeyCode.E, 1.2)
-						task.wait(0.4)
+						task.wait(1.5)
+						holdKey(Enum.KeyCode.E, 1.5)
+						task.wait(1)
 						farmStats.sold = farmStats.sold + 1
 					end
 				end
