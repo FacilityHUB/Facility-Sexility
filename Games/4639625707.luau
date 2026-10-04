@@ -1,4 +1,5 @@
-
+--!nocheck
+--!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -207,7 +208,13 @@ local DEPOSIT_LATERAL = { -20, 0, 20 }
 local CRATE_CYCLE = 3
 
 local AutoBuy = { Enabled = false, Colors = { "Vert", "Bleu" } }
-local AutoCrate = { Enabled = false, HoldTime = 15, Types = { "Air", "Land", "Naval" } }
+local AutoCrate = {
+	Enabled = false,
+	HoldTime = 15,
+	PickupTime = 4,
+	SellTime = 2,
+	Types = { "Air", "Land", "Naval" },
+}
 
 local farmStats = { bought = 0, collected = 0, sold = 0 }
 
@@ -221,6 +228,42 @@ local function holdKey(keyCode, duration)
 	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
 	task.wait(duration)
 	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function holdKeyAt(cframe, keyCode, duration, enabledCheck)
+	local root = waitForRoot(3)
+	if not root then return false end
+
+	pcall(function() root.CFrame = cframe end)
+	task.wait(0.2)
+
+	local wasAnchored = root.Anchored
+	pcall(function() root.Anchored = true end)
+
+	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+
+	local waited = 0
+	while waited < duration do
+		if enabledCheck and not enabledCheck() then break end
+		waited = waited + task.wait(0.1)
+
+		local current = localRoot()
+		if current and current ~= root then
+			root = current
+			pcall(function()
+				root.CFrame = cframe
+				root.Anchored = true
+			end)
+		end
+	end
+
+	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+
+	if root and root.Parent then
+		pcall(function() root.Anchored = wasAnchored end)
+	end
+
+	return true
 end
 
 local function localRoot()
@@ -390,11 +433,11 @@ local function runAutoCrate()
 
 				taken[crate] = true
 
-				if not teleportTo(CFrame.new(position) + Vector3.new(0, 1, 0)) then break end
-				task.wait(0.5)
+				local pickupCFrame = CFrame.new(position) + Vector3.new(0, 1, 0)
 
-				holdKey(Enum.KeyCode.E, 2)
-				holdKey(Enum.KeyCode.E, 2)
+				holdKeyAt(pickupCFrame, Enum.KeyCode.E, AutoCrate.PickupTime, function()
+					return AutoCrate.Enabled
+				end)
 
 				if not AutoCrate.Enabled then return end
 
@@ -417,19 +460,18 @@ local function runAutoCrate()
 			for _, spot in ipairs(stored) do
 				if not AutoCrate.Enabled then return end
 
-				if teleportTo(spot) then
-					task.wait(0.5)
-					holdKey(Enum.KeyCode.E, 1)
+				holdKeyAt(spot, Enum.KeyCode.E, AutoCrate.PickupTime, function()
+					return AutoCrate.Enabled
+				end)
 
-					if not AutoCrate.Enabled then return end
+				if not AutoCrate.Enabled then return end
 
-					if teleportTo(plate) then
-						task.wait(1.5)
-						holdKey(Enum.KeyCode.E, 1.5)
-						task.wait(1)
-						farmStats.sold = farmStats.sold + 1
-					end
-				end
+				holdKeyAt(plate, Enum.KeyCode.E, AutoCrate.SellTime, function()
+					return AutoCrate.Enabled
+				end)
+
+				task.wait(0.5)
+				farmStats.sold = farmStats.sold + 1
 			end
 
 			if #stored == 0 then task.wait(2) end
@@ -491,6 +533,24 @@ crateBox:Slider({
 	Min = 5, Max = 40, Default = 15,
 	Suffix = " s",
 	Callback = function(value) AutoCrate.HoldTime = value end,
+})
+
+crateBox:Slider({
+	Text = "Pickup Time",
+	Flag = "farm_crate_pickup",
+	Min = 1, Max = 10, Default = 4,
+	Decimals = 1,
+	Suffix = " s",
+	Callback = function(value) AutoCrate.PickupTime = value end,
+})
+
+crateBox:Slider({
+	Text = "Sell Time",
+	Flag = "farm_crate_sell",
+	Min = 0.5, Max = 6, Default = 2,
+	Decimals = 1,
+	Suffix = " s",
+	Callback = function(value) AutoCrate.SellTime = value end,
 })
 
 local statsBox = Farm:Section("Stats", 1)
