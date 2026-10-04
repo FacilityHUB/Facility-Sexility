@@ -1,3 +1,5 @@
+--!nocheck
+--!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -200,13 +202,21 @@ Movement.Settings.WalkSpeedMode = "Velocity"
 Movement.Settings.JumpMode = "Humanoid"
 
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
 
 local DEPOSIT_FORWARD = 25
 local DEPOSIT_LATERAL = { -20, 0, 20 }
 local CRATE_CYCLE = 3
 
 local AutoBuy = { Enabled = false, Colors = { "Vert", "Bleu" } }
-local AutoCrate = { Enabled = false, HoldTime = 15, Types = { "Air", "Land", "Naval" } }
+local AutoCrate = {
+	Enabled = false,
+	HoldTime = 15,
+	Speed = 120,
+	Altitude = 150,
+	Approach = 20,
+	Types = { "Air", "Land", "Naval" },
+}
 
 local farmStats = { bought = 0, collected = 0, sold = 0 }
 
@@ -235,6 +245,59 @@ local function waitForRoot(timeout)
 		task.wait(0.1)
 	until tick() > deadline
 	return nil
+end
+
+local function tweenRootTo(target, speed)
+	local root = waitForRoot(3)
+	if not root or not target then return false end
+
+	local distance = (target.Position - root.Position).Magnitude
+	local duration = math.max(distance / math.max(speed, 1), 0.05)
+
+	local tween = TweenService:Create(root,
+		TweenInfo.new(duration, Enum.EasingStyle.Linear),
+		{ CFrame = target })
+
+	tween:Play()
+
+	local elapsed = 0
+	while tween.PlaybackState == Enum.PlaybackState.Playing do
+		if not AutoCrate.Enabled then
+			tween:Cancel()
+			return false
+		end
+		elapsed = elapsed + task.wait(0.05)
+		if elapsed > duration + 2 then
+			tween:Cancel()
+			break
+		end
+	end
+
+	local current = localRoot()
+	if current then pcall(function() current.CFrame = target end) end
+	return true
+end
+
+local function flyToDeposit(spot)
+	local root = waitForRoot(3)
+	if not root or not spot then return false end
+
+	local altitude = AutoCrate.Altitude
+	local approach = AutoCrate.Approach
+
+	if not tweenRootTo(root.CFrame + Vector3.new(0, altitude, 0), AutoCrate.Speed) then
+		return false
+	end
+
+	if not tweenRootTo(spot + Vector3.new(0, altitude, 0), AutoCrate.Speed) then
+		return false
+	end
+
+	if not tweenRootTo(spot + Vector3.new(0, approach, 0), AutoCrate.Speed) then
+		return false
+	end
+
+	return tweenRootTo(spot, AutoCrate.Speed)
 end
 
 local function teleportTo(cframe)
@@ -398,7 +461,7 @@ local function runAutoCrate()
 				if not AutoCrate.Enabled then return end
 
 				local spot = depositSpot(plate, index)
-				if spot and teleportTo(spot) then
+				if spot and flyToDeposit(spot) then
 					local waited = 0
 					while AutoCrate.Enabled and waited < AutoCrate.HoldTime do
 						waited = waited + task.wait(0.5)
@@ -490,6 +553,22 @@ crateBox:Slider({
 	Min = 5, Max = 40, Default = 15,
 	Suffix = " s",
 	Callback = function(value) AutoCrate.HoldTime = value end,
+})
+
+crateBox:Slider({
+	Text = "Travel Speed",
+	Flag = "farm_crate_speed",
+	Min = 30, Max = 400, Default = 120,
+	Suffix = " s/s",
+	Callback = function(value) AutoCrate.Speed = value end,
+})
+
+crateBox:Slider({
+	Text = "Altitude",
+	Flag = "farm_crate_altitude",
+	Min = 50, Max = 400, Default = 150,
+	Suffix = " studs",
+	Callback = function(value) AutoCrate.Altitude = value end,
 })
 
 
