@@ -1,5 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -258,6 +256,9 @@ local function tweenRootTo(target, speed)
 		TweenInfo.new(duration, Enum.EasingStyle.Linear),
 		{ CFrame = target })
 
+	local humanoid = LocalPlayer.Character
+		and LocalPlayer.Character:FindFirstChildWhichIsA("Humanoid")
+
 	tween:Play()
 
 	local elapsed = 0
@@ -266,6 +267,10 @@ local function tweenRootTo(target, speed)
 			tween:Cancel()
 			return false
 		end
+		if humanoid and humanoid.Parent then
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+		end
+
 		elapsed = elapsed + task.wait(0.05)
 		if elapsed > duration + 2 then
 			tween:Cancel()
@@ -278,26 +283,46 @@ local function tweenRootTo(target, speed)
 	return true
 end
 
+local function localHumanoid()
+	local character = LocalPlayer.Character
+	return character and character:FindFirstChildWhichIsA("Humanoid")
+end
+
+local function suspendFalling(state)
+	local humanoid = localHumanoid()
+	if not humanoid then return end
+
+	pcall(function()
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, not state)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not state)
+		humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not state)
+
+		if state then
+			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+			humanoid.PlatformStand = true
+		else
+			humanoid.PlatformStand = false
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end)
+end
+
 local function flyToDeposit(spot)
 	local root = waitForRoot(3)
 	if not root or not spot then return false end
 
-	local altitude = AutoCrate.Altitude
+	local depth = AutoCrate.Altitude
 	local approach = AutoCrate.Approach
 
-	if not tweenRootTo(root.CFrame + Vector3.new(0, altitude, 0), AutoCrate.Speed) then
-		return false
-	end
+	suspendFalling(true)
 
-	if not tweenRootTo(spot + Vector3.new(0, altitude, 0), AutoCrate.Speed) then
-		return false
-	end
+	local ok = tweenRootTo(root.CFrame - Vector3.new(0, depth, 0), AutoCrate.Speed)
+		and tweenRootTo(spot - Vector3.new(0, depth, 0), AutoCrate.Speed)
+		and tweenRootTo(spot - Vector3.new(0, approach, 0), AutoCrate.Speed)
+		and tweenRootTo(spot, AutoCrate.Speed)
 
-	if not tweenRootTo(spot + Vector3.new(0, approach, 0), AutoCrate.Speed) then
-		return false
-	end
-
-	return tweenRootTo(spot, AutoCrate.Speed)
+	suspendFalling(false)
+	return ok
 end
 
 local function teleportTo(cframe)
@@ -564,9 +589,9 @@ crateBox:Slider({
 })
 
 crateBox:Slider({
-	Text = "Altitude",
+	Text = "Depth",
 	Flag = "farm_crate_altitude",
-	Min = 50, Max = 400, Default = 150,
+	Min = 20, Max = 400, Default = 150,
 	Suffix = " studs",
 	Callback = function(value) AutoCrate.Altitude = value end,
 })
