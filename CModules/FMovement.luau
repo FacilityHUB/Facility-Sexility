@@ -73,19 +73,7 @@ local function root()
         or char.PrimaryPart
 end
 
-local function moveVector()
-    local ok, control = pcall(function()
-        return require(LocalPlayer:WaitForChild("PlayerScripts")
-            :WaitForChild("PlayerModule")):GetControls()
-    end)
-    if ok and control then
-        local fine, vector = pcall(function() return control:GetMoveVector() end)
-        if fine and vector then return vector end
-    end
-
-    local humanoidInstance = humanoid()
-    return humanoidInstance and humanoidInstance.MoveDirection or Vector3.zero
-end
+local flyControl = { F = 0, B = 0, L = 0, R = 0, Q = 0, E = 0 }
 
 function Movement:_track(connection)
     table.insert(self._connections, connection)
@@ -93,6 +81,11 @@ function Movement:_track(connection)
 end
 
 function Movement:_clearFly()
+    self._flying = false
+
+    if self._flyDown then self._flyDown:Disconnect() self._flyDown = nil end
+    if self._flyUp then self._flyUp:Disconnect() self._flyUp = nil end
+
     local part = root()
     if part then
         local bv = part:FindFirstChild(velocityName)
@@ -101,13 +94,10 @@ function Movement:_clearFly()
         if bg then bg:Destroy() end
     end
 
-    if self._flyLoop then
-        self._flyLoop:Disconnect()
-        self._flyLoop = nil
-    end
-
     local humanoidInstance = humanoid()
     if humanoidInstance then humanoidInstance.PlatformStand = false end
+
+    for key in pairs(flyControl) do flyControl[key] = 0 end
 
     pcall(function()
         Camera.CameraType = Enum.CameraType.Custom
@@ -117,58 +107,104 @@ end
 function Movement:_startFly(vehicle)
     self:_clearFly()
 
-    local part = root()
-    local humanoidInstance = humanoid()
-    if not part or not humanoidInstance then return end
+    local char = character()
+    if not char then return end
 
-    local velocity = Instance.new("BodyVelocity")
-    velocity.Name = velocityName
-    velocity.MaxForce = Vector3.zero
-    velocity.Velocity = Vector3.zero
-    velocity.Parent = part
+    local humanoidInstance = humanoid()
+    if not humanoidInstance then
+        repeat task.wait() until character() and humanoid()
+        humanoidInstance = humanoid()
+    end
+
+    local part = humanoidInstance.RootPart or root()
+    if not part then return end
+
+    self._flying = true
 
     local gyro = Instance.new("BodyGyro")
     gyro.Name = gyroName
+    gyro.P = 9e4
     gyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-    gyro.P = 1000
-    gyro.D = 50
+    gyro.CFrame = part.CFrame
     gyro.Parent = part
 
-    self._flyLoop = RunService.RenderStepped:Connect(function()
-        local currentRoot = root()
-        local currentHumanoid = humanoid()
-        if not currentRoot or not currentHumanoid then return end
+    local velocity = Instance.new("BodyVelocity")
+    velocity.Name = velocityName
+    velocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    velocity.Velocity = Vector3.zero
+    velocity.Parent = part
 
-        local bv = currentRoot:FindFirstChild(velocityName)
-        local bg = currentRoot:FindFirstChild(gyroName)
-        if not bv or not bg then return end
+    local function speed()
+        return vehicle and self.Settings.VehicleFlySpeed or self.Settings.FlySpeed
+    end
 
-        local speed = vehicle and self.Settings.VehicleFlySpeed or self.Settings.FlySpeed
+    self._flyDown = UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        local value = speed()
 
-        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-        bg.CFrame = Camera.CFrame
-
-        if not vehicle then currentHumanoid.PlatformStand = true end
-
-        local direction = moveVector()
-        local result = Vector3.zero
-
-        if direction.X ~= 0 then
-            result = result + Camera.CFrame.RightVector * (direction.X * speed * 50)
+        if input.KeyCode == Enum.KeyCode.W then flyControl.F = value
+        elseif input.KeyCode == Enum.KeyCode.S then flyControl.B = -value
+        elseif input.KeyCode == Enum.KeyCode.A then flyControl.L = -value
+        elseif input.KeyCode == Enum.KeyCode.D then flyControl.R = value
+        elseif input.KeyCode == Enum.KeyCode.E then flyControl.Q = value * 2
+        elseif input.KeyCode == Enum.KeyCode.Q then flyControl.E = -value * 2
+        elseif input.KeyCode == Enum.KeyCode.Space then flyControl.Q = value * 2
+        elseif input.KeyCode == Enum.KeyCode.LeftShift then flyControl.E = -value * 2
         end
-        if direction.Z ~= 0 then
-            result = result - Camera.CFrame.LookVector * (direction.Z * speed * 50)
-        end
+    end)
 
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            result = result + Vector3.new(0, speed * 50, 0)
+    self._flyUp = UserInputService.InputEnded:Connect(function(input)
+        if input.KeyCode == Enum.KeyCode.W then flyControl.F = 0
+        elseif input.KeyCode == Enum.KeyCode.S then flyControl.B = 0
+        elseif input.KeyCode == Enum.KeyCode.A then flyControl.L = 0
+        elseif input.KeyCode == Enum.KeyCode.D then flyControl.R = 0
+        elseif input.KeyCode == Enum.KeyCode.E then flyControl.Q = 0
+        elseif input.KeyCode == Enum.KeyCode.Q then flyControl.E = 0
+        elseif input.KeyCode == Enum.KeyCode.Space then flyControl.Q = 0
+        elseif input.KeyCode == Enum.KeyCode.LeftShift then flyControl.E = 0
         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            result = result - Vector3.new(0, speed * 50, 0)
-        end
+    end)
 
-        bv.Velocity = result
+    task.spawn(function()
+        repeat
+            task.wait()
+
+            local currentHumanoid = humanoid()
+            if not vehicle and currentHumanoid then
+                currentHumanoid.PlatformStand = true
+            end
+
+            local moving = (flyControl.L + flyControl.R) ~= 0
+                or (flyControl.F + flyControl.B) ~= 0
+                or (flyControl.Q + flyControl.E) ~= 0
+
+            local power = moving and 50 * speed() or 0
+
+            if power ~= 0 then
+                local cframe = Camera.CFrame
+                local lateral = cframe * CFrame.new(
+                    flyControl.L + flyControl.R,
+                    (flyControl.F + flyControl.B) * 0.2,
+                    0)
+
+                velocity.Velocity =
+                    (cframe.LookVector * (flyControl.F + flyControl.B)
+                        + (lateral.Position - cframe.Position)) * power
+                    + Vector3.new(0, (flyControl.Q + flyControl.E) * power, 0)
+            else
+                velocity.Velocity = Vector3.zero
+            end
+
+            gyro.CFrame = Camera.CFrame
+        until not self._flying
+
+        pcall(function() gyro:Destroy() end)
+        pcall(function() velocity:Destroy() end)
+
+        local endHumanoid = humanoid()
+        if endHumanoid then endHumanoid.PlatformStand = false end
+
+        pcall(function() Camera.CameraType = Enum.CameraType.Custom end)
     end)
 end
 
