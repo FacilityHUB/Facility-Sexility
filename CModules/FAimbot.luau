@@ -1,4 +1,4 @@
---!nocheck 
+--!nocheck
 --!nolint UnknownGlobal
 
 local Players = game:GetService("Players")
@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Stats = game:GetService("Stats")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -26,6 +27,23 @@ local Aimbot = {
         Mode = "Camera",
         Smoothness = 0.25,
         Sensitivity = 0.35,
+        EasingStyle = "Quad",
+        EasingDirection = "Out",
+
+        HitChance = 100,
+        SwitchDelay = 0,
+        Deadzone = 0,
+
+        TargetLine = false,
+        TargetLineColor = Color3.fromRGB(255, 70, 70),
+        TargetLineThickness = 1,
+
+        TargetInfo = false,
+        TargetInfoSize = 13,
+        TargetInfoColor = Color3.fromRGB(255, 255, 255),
+
+        IgnoreDowned = false,
+        IgnoreForcefield = false,
 
         Priority = "Cursor",
         Parts = { "Head" },
@@ -82,6 +100,34 @@ local function pingSeconds()
         value = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
     end)
     return value
+end
+
+function Aimbot:_line()
+    if self._lineDrawing then return self._lineDrawing end
+
+    local line = Drawing.new("Line")
+    line.Thickness = self.Settings.TargetLineThickness
+    line.Color = self.Settings.TargetLineColor
+    line.Transparency = 1
+    line.Visible = false
+
+    self._lineDrawing = line
+    return line
+end
+
+function Aimbot:_info()
+    if self._infoDrawing then return self._infoDrawing end
+
+    local text = Drawing.new("Text")
+    text.Size = self.Settings.TargetInfoSize
+    text.Color = self.Settings.TargetInfoColor
+    text.Center = true
+    text.Outline = true
+    text.Transparency = 1
+    text.Visible = false
+
+    self._infoDrawing = text
+    return text
 end
 
 function Aimbot:_fov()
@@ -165,6 +211,19 @@ function Aimbot:_score(record, part, origin, radius)
 
     if not self:_visible(record, part) then return nil end
 
+    local deadzone = self.Settings.Deadzone or 0
+    if deadzone > 0 and fromAim < deadzone then return nil end
+
+    if self.Settings.IgnoreDowned then
+        local humanoid = record.Humanoid
+        if humanoid and humanoid.PlatformStand then return nil end
+    end
+
+    if self.Settings.IgnoreForcefield then
+        local character = record.Character
+        if character and character:FindFirstChildOfClass("ForceField") then return nil end
+    end
+
     local priority = self.Settings.Priority
     if priority == "Closest" then
         return distance
@@ -210,13 +269,35 @@ function Aimbot:_select()
     return best, bestPart
 end
 
+function Aimbot:_eased(alpha)
+    local styleName = self.Settings.EasingStyle
+    if not styleName or styleName == "Linear" then return alpha end
+
+    local style = Enum.EasingStyle[styleName]
+    local direction = Enum.EasingDirection[self.Settings.EasingDirection or "Out"]
+    if not style then return alpha end
+
+    local ok, value = pcall(function()
+        return TweenService:GetValue(alpha, style, direction)
+    end)
+
+    return ok and value or alpha
+end
+
+function Aimbot:RollHitChance()
+    local chance = self.Settings.HitChance or 100
+    if chance >= 100 then return true end
+    if chance <= 0 then return false end
+    return math.random(1, 100) <= chance
+end
+
 function Aimbot:_aim(position)
     local mode = self.Settings.Mode
 
     if mode == "Camera" then
         local goal = CFrame.new(Camera.CFrame.Position, position)
         local smooth = math.clamp(self.Settings.Smoothness, 0.01, 1)
-        Camera.CFrame = Camera.CFrame:Lerp(goal, smooth)
+        Camera.CFrame = Camera.CFrame:Lerp(goal, self:_eased(smooth))
 
     elseif mode == "Mouse" then
         if not mousemoverel then return end
@@ -326,9 +407,14 @@ function Aimbot:Load(handler)
         circle.Transparency = settings.FovTransparency
         circle.Position = aimOrigin()
 
+        local line = self:_line()
+        local info = self:_info()
+
         if not self.Enabled or not self.Active then
             self.Target = nil
             circle.Color = settings.FovColor
+            line.Visible = false
+            info.Visible = false
             return
         end
 
@@ -337,11 +423,48 @@ function Aimbot:Load(handler)
         if not record or not part then
             self.Target = nil
             circle.Color = settings.FovColor
+            line.Visible = false
+            info.Visible = false
             return
+        end
+
+        if settings.SwitchDelay > 0 and self.Target and record.Player ~= self.Target then
+            local now = tick()
+            if now - (self._lastSwitch or 0) < settings.SwitchDelay then
+                circle.Color = settings.FovLockColor
+                return
+            end
+            self._lastSwitch = now
         end
 
         self.Target = record.Player
         circle.Color = settings.FovLockColor
+
+        local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
+
+        if settings.TargetLine and onScreen then
+            line.Visible = true
+            line.From = aimOrigin()
+            line.To = Vector2.new(screen.X, screen.Y)
+            line.Color = settings.TargetLineColor
+            line.Thickness = settings.TargetLineThickness
+        else
+            line.Visible = false
+        end
+
+        if settings.TargetInfo and onScreen then
+            local distance = math.floor((Camera.CFrame.Position - part.Position).Magnitude)
+            local health = record.Health and math.floor(record.Health) or 0
+
+            info.Visible = true
+            info.Size = settings.TargetInfoSize
+            info.Color = settings.TargetInfoColor
+            info.Text = ("%s  |  %d studs  |  %d hp")
+                :format(record.Player.DisplayName, distance, health)
+            info.Position = Vector2.new(screen.X, screen.Y - 28)
+        else
+            info.Visible = false
+        end
 
         self:_aim(self:_predict(part))
         self:_trigger()
@@ -359,9 +482,11 @@ function Aimbot:Unload()
     end
     table.clear(self._connections)
 
-    if self._fovCircle then
-        pcall(function() self._fovCircle:Remove() end)
-        self._fovCircle = nil
+    for _, key in ipairs({ "_fovCircle", "_lineDrawing", "_infoDrawing" }) do
+        if self[key] then
+            pcall(function() self[key]:Remove() end)
+            self[key] = nil
+        end
     end
 
     self.Active = false
