@@ -1,5 +1,4 @@
---!nocheck
---!nolint UnknownGlobal
+
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
