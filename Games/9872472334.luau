@@ -1,5 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -346,6 +344,98 @@ displayBox:Dropdown({
 	Callback = function(value)
 		local map = { UI = 0, System = 1, Plex = 2, Monospace = 3 }
 		Esp.sharedSettings.textFont = map[value] or 2
+	end,
+})
+
+local CameraService
+local cameraDefaults = {}
+
+local function getCameraService()
+	if CameraService then return CameraService end
+
+	local ok, result = pcall(function()
+		local services = ReplicatedStorage:FindFirstChild("Services")
+		local client = services and services:FindFirstChild("Client")
+		local module = client and client:FindFirstChild("CameraService")
+		return module and require(module) or nil
+	end)
+
+	if ok and type(result) == "table" then
+		CameraService = result
+		cameraDefaults.BaseFOV = result.BaseFOV
+		cameraDefaults.MinY = result.MinY
+		cameraDefaults.MaxY = result.MaxY
+	end
+
+	return CameraService
+end
+
+local cameraBox = Visuals:Section("Camera", 1)
+
+cameraBox:Toggle({
+	Text = "Custom Fov",
+	Flag = "cam_fov_enabled",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if not service then
+			Library:Error("Camera", "CameraService not found.", 6)
+			return
+		end
+
+		if state then
+			pcall(function() service:SetBaseFOV(Library.Flags["cam_fov"] or 70) end)
+		else
+			pcall(function()
+				service:SetBaseFOV(cameraDefaults.BaseFOV or 70)
+			end)
+		end
+	end,
+})
+
+cameraBox:Slider({
+	Text = "Fov",
+	Flag = "cam_fov",
+	Min = 40, Max = 120, Default = 70,
+	Suffix = "°",
+	Callback = function(value)
+		if not Library.Flags["cam_fov_enabled"] then return end
+		local service = getCameraService()
+		if service then
+			pcall(function() service:SetBaseFOV(value) end)
+		end
+	end,
+})
+
+cameraBox:Toggle({
+	Text = "Shift Lock",
+	Flag = "cam_shift_lock",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if service then
+			pcall(function() service:ToggleShiftLock(state) end)
+		end
+	end,
+})
+
+cameraBox:Toggle({
+	Text = "Unlock Camera Angle",
+	Flag = "cam_unlock_angle",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if not service then return end
+
+		pcall(function()
+			if state then
+				service:SetMinY(-89)
+				service:SetMaxY(89)
+			else
+				service:SetMinY(cameraDefaults.MinY or -70)
+				service:SetMaxY(cameraDefaults.MaxY or 70)
+			end
+		end)
 	end,
 })
 
