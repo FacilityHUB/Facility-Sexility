@@ -56,6 +56,8 @@ local Aimbot = {
         RandomPart = false,
         RandomInterval = 1,
 
+        Multipoint = false,
+
         MaxDistance = 2000,
         TeamCheck = true,
         WallCheck = false,
@@ -167,6 +169,72 @@ function Aimbot:_partOf(record)
     return record.Head or record.RootPart
 end
 
+local MULTIPOINT_SCALE = 0.75
+
+local MULTIPOINT_OFFSETS = {
+    Vector3.new(0, 0, 0),
+    Vector3.new(1, 0, 0),
+    Vector3.new(-1, 0, 0),
+    Vector3.new(0, 1, 0),
+    Vector3.new(0, -1, 0),
+}
+
+function Aimbot:_points(part)
+    if not self.Settings.Multipoint then
+        return { part.Position }
+    end
+
+    local half = part.Size * 0.5 * MULTIPOINT_SCALE
+    local cframe = part.CFrame
+    local points = {}
+
+    for _, offset in ipairs(MULTIPOINT_OFFSETS) do
+        table.insert(points, cframe:PointToWorldSpace(offset * half))
+    end
+
+    return points
+end
+
+function Aimbot:_visiblePoint(record, part)
+    local points = self:_points(part)
+    local multipoint = self.Settings.Multipoint
+
+    if not self.Settings.WallCheck then
+        if not multipoint then return points[1] end
+        return points[math.random(1, #points)]
+    end
+
+    local origin = Camera.CFrame.Position
+
+    local params = self._rayParams
+    if not params then
+        params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.IgnoreWater = true
+        self._rayParams = params
+    end
+
+    local ignore = { record.Character }
+    if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
+    params.FilterDescendantsInstances = ignore
+
+    local function clear(point)
+        return workspace:Raycast(origin, point - origin, params) == nil
+    end
+
+    if not multipoint then
+        return clear(points[1]) and points[1] or nil
+    end
+
+    local visible = {}
+    for _, point in ipairs(points) do
+        if clear(point) then table.insert(visible, point) end
+    end
+
+    if #visible == 0 then return nil end
+    return visible[math.random(1, #visible)]
+end
+
 function Aimbot:_visible(record, part)
     if not self.Settings.WallCheck then return true end
 
@@ -189,18 +257,20 @@ function Aimbot:_visible(record, part)
     return hit == nil
 end
 
-function Aimbot:_predict(part)
-    if not self.Settings.Prediction then return part.Position end
+function Aimbot:_predict(part, point)
+    point = point or part.Position
+
+    if not self.Settings.Prediction then return point end
 
     local velocity = part.AssemblyLinearVelocity
-    if velocity.Magnitude < 0.1 then return part.Position end
+    if velocity.Magnitude < 0.1 then return point end
 
     local amount = self.Settings.PredictionTime
     if self.Settings.PingPrediction then
         amount = amount + pingSeconds()
     end
 
-    return part.Position + velocity * amount
+    return point + velocity * amount
 end
 
 function Aimbot:_score(record, part, origin, radius)
@@ -215,7 +285,8 @@ function Aimbot:_score(record, part, origin, radius)
     local distance = (Camera.CFrame.Position - part.Position).Magnitude
     if distance > self.Settings.MaxDistance then return nil end
 
-    if not self:_visible(record, part) then return nil end
+    local point = self:_visiblePoint(record, part)
+    if not point then return nil end
 
     local deadzone = self.Settings.Deadzone or 0
     if deadzone > 0 and fromAim < deadzone then return nil end
@@ -231,13 +302,17 @@ function Aimbot:_score(record, part, origin, radius)
     end
 
     local priority = self.Settings.Priority
+    local score
+
     if priority == "Closest" then
-        return distance
+        score = distance
     elseif priority == "LowestHealth" then
-        return record.Health or math.huge
+        score = record.Health or math.huge
+    else
+        score = fromAim
     end
 
-    return fromAim
+    return score, point
 end
 
 function Aimbot:_select()
@@ -246,15 +321,16 @@ function Aimbot:_select()
     local origin = aimOrigin()
     local radius = self.Settings.Fov
 
-    local best, bestPart, bestScore = nil, nil, math.huge
+    local best, bestPart, bestPoint, bestScore = nil, nil, nil, math.huge
 
     if self.Settings.Sticky and self.Target then
         local record = Entity:Get(self.Target)
         if record and record.Alive then
             local part = self:_partOf(record)
             if part then
-                local score = self:_score(record, part, origin, radius * self.Settings.StickyFov)
-                if score then return record, part end
+                local score, point = self:_score(record, part, origin,
+                    radius * self.Settings.StickyFov)
+                if score then return record, part, point end
             end
         end
         self.Target = nil
@@ -264,15 +340,15 @@ function Aimbot:_select()
         if not self.Settings.AliveCheck or (record.Health or 1) > 0 then
             local part = self:_partOf(record)
             if part then
-                local score = self:_score(record, part, origin, radius)
+                local score, point = self:_score(record, part, origin, radius)
                 if score and score < bestScore then
-                    best, bestPart, bestScore = record, part, score
+                    best, bestPart, bestPoint, bestScore = record, part, point, score
                 end
             end
         end
     end
 
-    return best, bestPart
+    return best, bestPart, bestPoint
 end
 
 function Aimbot:_eased(alpha)
@@ -468,7 +544,7 @@ function Aimbot:Load(handler)
             return
         end
 
-        local record, part = self:_select()
+        local record, part, point = self:_select()
 
         if not record or not part then
             self.Target = nil
@@ -491,7 +567,8 @@ function Aimbot:Load(handler)
         self.Target = record.Player
         circle.Color = settings.FovLockColor
 
-        local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
+        local aimPoint = point or part.Position
+        local screen, onScreen = Camera:WorldToViewportPoint(aimPoint)
 
         if settings.TargetLine and onScreen then
             line.Visible = true
@@ -519,7 +596,7 @@ function Aimbot:Load(handler)
             info.Visible = false
         end
 
-        self:_aim(self:_predict(part), dt)
+        self:_aim(self:_predict(part, aimPoint), dt)
         self:_trigger()
     end)
 
