@@ -616,6 +616,34 @@ aimBox:Slider({
 	end,
 })
 
+aimBox:Toggle({
+	Text = "Elastic Aim",
+	Flag = "aim_elastic",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.Elastic = state end,
+})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Stiffness",
+			Flag = "aim_stiffness",
+			Min = 4, Max = 60, Default = 18,
+			Callback = function(value) Aimbot.Settings.Stiffness = value end,
+		})
+		panel:Slider({
+			Text = "Damping",
+			Flag = "aim_damping",
+			Min = 0.3, Max = 0.98, Default = 0.72,
+			Decimals = 2,
+			Callback = function(value) Aimbot.Settings.Damping = value end,
+		})
+		panel:Slider({
+			Text = "Max Overshoot",
+			Flag = "aim_overshoot",
+			Min = 0, Max = 200, Default = 60,
+			Callback = function(value) Aimbot.Settings.MaxOvershoot = value end,
+		})
+	end)
+
 aimBox:Dropdown({
 	Text = "Easing Style",
 	Flag = "aim_easing_style",
@@ -755,6 +783,13 @@ behaviourBox:Toggle({
 			Min = 1, Max = 5, Default = 1,
 			Callback = function(value) Aimbot.Settings.TargetLineThickness = value end,
 		})
+		panel:Dropdown({
+			Text = "Origin",
+			Flag = "aim_target_line_origin",
+			Options = { "Mouse", "Center" },
+			Default = "Mouse",
+			Callback = function(value) Aimbot.Settings.TargetLineOrigin = value end,
+		})
 	end)
 
 behaviourBox:Toggle({
@@ -818,7 +853,49 @@ local SilentAim = {
 	HitPart = "Head",
 	RandomPart = false,
 	Fov = 0,
+	FovVisible = false,
+	FovColor = Color3.fromRGB(120, 190, 255),
+	FovThickness = 1,
+	FovFilled = false,
+	FovTransparency = 0.4,
+	Locked = false,
 }
+
+local silentCircle = Drawing.new("Circle")
+silentCircle.Thickness = 1
+silentCircle.Color = SilentAim.FovColor
+silentCircle.Filled = false
+silentCircle.Transparency = 0.4
+silentCircle.Radius = 120
+silentCircle.Visible = false
+
+task.spawn(function()
+	while task.wait() do
+		local show = SilentAim.Enabled and SilentAim.FovVisible and SilentAim.Fov > 0
+
+		silentCircle.Visible = show
+
+		if show then
+			local origin
+
+			if Aimbot and Aimbot.Settings.Mode == "Mouse" then
+				local cursor = UserInputService:GetMouseLocation()
+				origin = Vector2.new(cursor.X, cursor.Y)
+			else
+				origin = Camera.ViewportSize * 0.5
+			end
+
+			silentCircle.Radius = SilentAim.Fov
+			silentCircle.Position = origin
+			silentCircle.Thickness = SilentAim.FovThickness
+			silentCircle.Filled = SilentAim.FovFilled
+			silentCircle.Transparency = SilentAim.FovTransparency
+			silentCircle.Color = SilentAim.Locked
+				and Color3.fromRGB(255, 70, 70)
+				or SilentAim.FovColor
+		end
+	end
+end)
 
 local SILENT_PARTS = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
 
@@ -886,6 +963,8 @@ local function silentTarget(origin)
 			end
 		end
 	end
+
+	SilentAim.Locked = bestPart ~= nil
 
 	if not bestPart then return nil end
 	if not silentRoll() then return nil end
@@ -1135,6 +1214,39 @@ silentBox:Slider({
 	Min = 0, Max = 600, Default = 0,
 	Callback = function(value) SilentAim.Fov = value end,
 })
+
+silentBox:Toggle({
+	Text = "Show Fov",
+	Flag = "silent_fov_visible",
+	Default = false,
+	Callback = function(state) SilentAim.FovVisible = state end,
+})
+	:ColorPicker({
+		Flag = "silent_fov_color",
+		Default = Color3.fromRGB(120, 190, 255),
+		Callback = function(color) SilentAim.FovColor = color end,
+	})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Thickness",
+			Flag = "silent_fov_thickness",
+			Min = 1, Max = 5, Default = 1,
+			Callback = function(value) SilentAim.FovThickness = value end,
+		})
+		panel:Slider({
+			Text = "Transparency",
+			Flag = "silent_fov_transparency",
+			Min = 0, Max = 1, Default = 0.4,
+			Decimals = 2,
+			Callback = function(value) SilentAim.FovTransparency = value end,
+		})
+		panel:Toggle({
+			Text = "Filled",
+			Flag = "silent_fov_filled",
+			Default = false,
+			Callback = function(state) SilentAim.FovFilled = state end,
+		})
+	end)
 
 silentBox:Slider({
 	Text = "Hit Chance",
