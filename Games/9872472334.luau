@@ -1,3 +1,5 @@
+--!nocheck
+--!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -16,7 +18,6 @@ workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 	Camera = workspace.CurrentCamera
 end)
 
-local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
 local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
 
 local function fetchModule(url, label)
@@ -32,7 +33,6 @@ local function fetchModule(url, label)
 	return result
 end
 
-local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
 local Movement = fetchModule(MOVEMENT_URL, "movement")
 
 if Movement then Movement:Load() end
@@ -46,7 +46,6 @@ local Window = Library:Window({
 	SectionTitleStyle = "border",
 })
 
-local Combat   = Window:Tab("Combat", "crosshair")
 local Movements = Window:Tab("Movement", "move")
 local Visuals  = Window:Tab("Visuals", "eye")
 local Collect  = Window:Tab("Collect", "coins")
@@ -93,9 +92,6 @@ Esp:AddTeam("npc", {
 	healthText  = false,
 	weapon      = false,
 	skeleton    = false,
-	chams       = false,
-	chamsFillColor    = { Color3.fromRGB(255, 80, 80), 0.6 },
-	chamsOutlineColor = { Color3.fromRGB(255, 140, 140), 0 },
 	maxDistance = 3000,
 })
 
@@ -249,21 +245,6 @@ espBox:Toggle({
 	})
 
 espBox:Toggle({
-	Text = "Npc Chams",
-	Flag = "esp_npc_chams",
-	Default = false,
-	Callback = function(state) Esp.teamSettings.npc.chams = state end,
-})
-	:ColorPicker({
-		Flag = "esp_npc_chams_color",
-		Default = Color3.fromRGB(255, 80, 80),
-		DefaultAlpha = 0.5,
-		Callback = function(color, alpha)
-			Esp.teamSettings.npc.chamsFillColor = { color, 1 - (alpha or 1) }
-		end,
-	})
-
-espBox:Toggle({
 	Text = "Collectables",
 	Flag = "esp_collectables",
 	Default = false,
@@ -369,75 +350,6 @@ local function getCameraService()
 
 	return CameraService
 end
-
-local cameraBox = Visuals:Section("Camera", 1)
-
-cameraBox:Toggle({
-	Text = "Custom Fov",
-	Flag = "cam_fov_enabled",
-	Default = false,
-	Callback = function(state)
-		local service = getCameraService()
-		if not service then
-			Library:Error("Camera", "CameraService not found.", 6)
-			return
-		end
-
-		if state then
-			pcall(function() service:SetBaseFOV(Library.Flags["cam_fov"] or 70) end)
-		else
-			pcall(function()
-				service:SetBaseFOV(cameraDefaults.BaseFOV or 70)
-			end)
-		end
-	end,
-})
-
-cameraBox:Slider({
-	Text = "Fov",
-	Flag = "cam_fov",
-	Min = 40, Max = 120, Default = 70,
-	Suffix = "°",
-	Callback = function(value)
-		if not Library.Flags["cam_fov_enabled"] then return end
-		local service = getCameraService()
-		if service then
-			pcall(function() service:SetBaseFOV(value) end)
-		end
-	end,
-})
-
-cameraBox:Toggle({
-	Text = "Shift Lock",
-	Flag = "cam_shift_lock",
-	Default = false,
-	Callback = function(state)
-		local service = getCameraService()
-		if service then
-			pcall(function() service:ToggleShiftLock(state) end)
-		end
-	end,
-})
-
-cameraBox:Toggle({
-	Text = "Unlock Camera Angle",
-	Flag = "cam_unlock_angle",
-	Default = false,
-	Callback = function(state)
-		local service = getCameraService()
-		if not service then return end
-
-		pcall(function()
-			if state then
-				service:SetMinY(-89)
-				service:SetMaxY(89)
-			else
-				service:SetMinY(cameraDefaults.MinY or -70)
-				service:SetMaxY(cameraDefaults.MaxY or 70)
-			end
-		end)
-	end,
-})
 
 local TICKET_RANGE = 14
 local INTERACT_RANGE = 5
@@ -617,211 +529,6 @@ task.spawn(function()
 	end
 end)
 
-if Aimbot then
-
-local aimBox = Combat:Section("Aimbot", 1)
-
-aimBox:Toggle({
-	Text = "Enable",
-	Flag = "aim_enable",
-	Default = false,
-	Callback = function(state)
-		if state then
-			pcall(function() Aimbot:Load(Entity) end)
-		end
-		Aimbot.Enabled = state
-	end,
-})
-
-aimBox:Keybind({
-	Text = "Aim Key",
-	Flag = "aim_key",
-	Default = "MB2",
-	Mode = "toggle",
-	OnChanged = function(key)
-		local map = {
-			MB1 = Enum.UserInputType.MouseButton1,
-			MB2 = Enum.UserInputType.MouseButton2,
-			MB3 = Enum.UserInputType.MouseButton3,
-		}
-		Aimbot:SetKey(map[key] or Enum.KeyCode[key] or Enum.UserInputType.MouseButton2)
-	end,
-})
-
-aimBox:Toggle({
-	Text = "Toggle Mode",
-	Flag = "aim_toggle_mode",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.ToggleMode = state end,
-})
-
-aimBox:Dropdown({
-	Text = "Priority",
-	Flag = "aim_priority",
-	Options = { "Cursor", "Closest", "LowestHealth" },
-	Default = "Cursor",
-	Callback = function(value) Aimbot.Settings.Priority = value end,
-})
-
-aimBox:Dropdown({
-	Text = "Target Part",
-	Flag = "aim_parts",
-	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart", "Torso" },
-	Default = { "HumanoidRootPart" },
-	Multi = true,
-	Empty = "HumanoidRootPart",
-	Callback = function(selected)
-		if #selected == 0 then selected = { "HumanoidRootPart" } end
-		Aimbot.Settings.Parts = selected
-	end,
-})
-
-aimBox:Toggle({
-	Text = "Elastic Aim",
-	Flag = "aim_elastic",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.Elastic = state end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Stiffness",
-			Flag = "aim_stiffness",
-			Min = 4, Max = 60, Default = 18,
-			Callback = function(value) Aimbot.Settings.Stiffness = value end,
-		})
-		panel:Slider({
-			Text = "Damping",
-			Flag = "aim_damping",
-			Min = 0.3, Max = 0.98, Default = 0.72,
-			Decimals = 2,
-			Callback = function(value) Aimbot.Settings.Damping = value end,
-		})
-	end)
-
-aimBox:Dropdown({
-	Text = "Easing Style",
-	Flag = "aim_easing_style",
-	Options = { "Linear", "Sine", "Quad", "Cubic", "Quart", "Quint", "Exponential", "Back" },
-	Default = "Quad",
-	Callback = function(value) Aimbot.Settings.EasingStyle = value end,
-})
-
-aimBox:Slider({
-	Text = "Smoothness",
-	Flag = "aim_smoothness",
-	Min = 0.05, Max = 1, Default = 0.25,
-	Decimals = 2,
-	Callback = function(value)
-		Aimbot.Settings.Smoothness = value
-		Aimbot.Settings.Sensitivity = value
-	end,
-})
-
-aimBox:Slider({
-	Text = "Max Distance",
-	Flag = "aim_max_distance",
-	Min = 100, Max = 5000, Default = 2000,
-	Suffix = " studs",
-	Callback = function(value) Aimbot.Settings.MaxDistance = value end,
-})
-
-local fovBox = Combat:Section("Fov", 2)
-
-fovBox:Toggle({
-	Text = "Fov",
-	Flag = "aim_fov_enabled",
-	Default = true,
-	Callback = function(state)
-		Aimbot.Settings.FovCheck = state
-		Aimbot.Settings.FovVisible = state
-	end,
-})
-	:ColorPicker({
-		Flag = "aim_fov_color",
-		Default = Color3.fromRGB(255, 255, 255),
-		Callback = function(color) Aimbot.Settings.FovColor = color end,
-	})
-	:ColorPicker({
-		Flag = "aim_fov_lock_color",
-		Default = Color3.fromRGB(255, 70, 70),
-		Callback = function(color) Aimbot.Settings.FovLockColor = color end,
-	})
-
-fovBox:Slider({
-	Text = "Radius",
-	Flag = "aim_fov",
-	Min = 20, Max = 600, Default = 120,
-	Callback = function(value) Aimbot:SetFov(value) end,
-})
-
-fovBox:Slider({
-	Text = "Thickness",
-	Flag = "aim_fov_thickness",
-	Min = 1, Max = 5, Default = 1,
-	Callback = function(value) Aimbot.Settings.FovThickness = value end,
-})
-
-local behaviourBox = Combat:Section("Behaviour", 2)
-
-behaviourBox:Toggle({
-	Text = "Wall Check",
-	Flag = "aim_wall_check",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.WallCheck = state end,
-})
-
-behaviourBox:Toggle({
-	Text = "Multipoint",
-	Flag = "aim_multipoint",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.Multipoint = state end,
-})
-
-behaviourBox:Toggle({
-	Text = "Sticky Target",
-	Flag = "aim_sticky",
-	Default = true,
-	Callback = function(state) Aimbot.Settings.Sticky = state end,
-})
-
-behaviourBox:Toggle({
-	Text = "Target Line",
-	Flag = "aim_target_line",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.TargetLine = state end,
-})
-	:ColorPicker({
-		Flag = "aim_target_line_color",
-		Default = Color3.fromRGB(255, 70, 70),
-		Callback = function(color) Aimbot.Settings.TargetLineColor = color end,
-	})
-
-behaviourBox:Toggle({
-	Text = "Target Info",
-	Flag = "aim_target_info",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.TargetInfo = state end,
-})
-
-behaviourBox:Toggle({
-	Text = "Prediction",
-	Flag = "aim_prediction",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.Prediction = state end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Time",
-			Flag = "aim_prediction_time",
-			Min = 0, Max = 0.5, Default = 0.12,
-			Decimals = 2,
-			Suffix = " s",
-			Callback = function(value) Aimbot.Settings.PredictionTime = value end,
-		})
-	end)
-
-end
-
 if Movement then
 
 Movement.Settings.WalkSpeedMode = "Velocity"
@@ -894,6 +601,112 @@ jumpBox:Toggle({
 	Callback = function(state) Movement:InfiniteJump(state) end,
 })
 
+local cameraBox = Movements:Section("Camera", 2)
+
+cameraBox:Toggle({
+	Text = "Custom Fov",
+	Flag = "cam_fov_enabled",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if not service then
+			Library:Error("Camera", "CameraService not found.", 6)
+			return
+		end
+
+		if state then
+			pcall(function() service:SetBaseFOV(Library.Flags["cam_fov"] or 70) end)
+		else
+			pcall(function()
+				service:SetBaseFOV(cameraDefaults.BaseFOV or 70)
+			end)
+		end
+	end,
+})
+
+cameraBox:Slider({
+	Text = "Fov",
+	Flag = "cam_fov",
+	Min = 40, Max = 120, Default = 70,
+	Suffix = "°",
+	Callback = function(value)
+		if not Library.Flags["cam_fov_enabled"] then return end
+		local service = getCameraService()
+		if service then
+			pcall(function() service:SetBaseFOV(value) end)
+		end
+	end,
+})
+
+cameraBox:Toggle({
+	Text = "Shift Lock",
+	Flag = "cam_shift_lock",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if service then
+			pcall(function() service:ToggleShiftLock(state) end)
+		end
+	end,
+})
+
+cameraBox:Toggle({
+	Text = "Unlock Camera Angle",
+	Flag = "cam_unlock_angle",
+	Default = false,
+	Callback = function(state)
+		local service = getCameraService()
+		if not service then return end
+
+		pcall(function()
+			if state then
+				service:SetMinY(-89)
+				service:SetMaxY(89)
+			else
+				service:SetMinY(cameraDefaults.MinY or -70)
+				service:SetMaxY(cameraDefaults.MaxY or 70)
+			end
+		end)
+	end,
+})
+
+local zoomLock = { Enabled = false, Min = 0.5, Max = 400 }
+
+task.spawn(function()
+	while task.wait(0.5) do
+		if zoomLock.Enabled then
+			pcall(function()
+				LocalPlayer.CameraMinZoomDistance = zoomLock.Min
+				LocalPlayer.CameraMaxZoomDistance = zoomLock.Max
+			end)
+		end
+	end
+end)
+
+cameraBox:Toggle({
+	Text = "Unlock Zoom",
+	Flag = "cam_unlock_zoom",
+	Default = false,
+	Callback = function(state)
+		zoomLock.Enabled = state
+
+		if not state then
+			pcall(function()
+				LocalPlayer.CameraMinZoomDistance = 0.5
+				LocalPlayer.CameraMaxZoomDistance = 128
+			end)
+		end
+	end,
+})
+
+cameraBox:Slider({
+	Text = "Max Zoom",
+	Flag = "cam_max_zoom",
+	Min = 50, Max = 2000, Default = 400,
+	Suffix = " studs",
+	Callback = function(value) zoomLock.Max = value end,
+})
+
 local otherBox = Movements:Section("Other", 1)
 
 otherBox:Toggle({
@@ -927,24 +740,6 @@ otherBox:Toggle({
 
 end
 
-local statsBox = Settings:Section("Stats", 1)
-
-local statNpc = statsBox:Label("-", { Style = "bright" })
-
-task.spawn(function()
-	while task.wait(1) do
-		local count = 0
-		for model in pairs(npcs) do
-			if model.Parent == nil then
-				untrackNpc(model)
-			else
-				count = count + 1
-			end
-		end
-		statNpc:Set(count .. " npcs tracked")
-	end
-end)
-
 local SaveManager      = Library.SaveManager
 local InterfaceManager = Library.InterfaceManager
 local ThemeManager     = Library.ThemeManager
@@ -963,7 +758,7 @@ InterfaceManager:BuildInterfaceSection(Settings, 1)
 SaveManager:BuildConfigSection(Settings, 2)
 ThemeManager:Mount(Window)
 
-Window:SetTab(Visuals)
+Window:SetTab(Movements)
 
 Library:Notify("Facility", "Loaded.", 4)
 
