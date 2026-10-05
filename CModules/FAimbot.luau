@@ -30,6 +30,11 @@ local Aimbot = {
         EasingStyle = "Quad",
         EasingDirection = "Out",
 
+        Elastic = false,
+        Stiffness = 18,
+        Damping = 0.72,
+        MaxOvershoot = 60,
+
         HitChance = 100,
         SwitchDelay = 0,
         Deadzone = 0,
@@ -37,6 +42,7 @@ local Aimbot = {
         TargetLine = false,
         TargetLineColor = Color3.fromRGB(255, 70, 70),
         TargetLineThickness = 1,
+        TargetLineOrigin = "Mouse",
 
         TargetInfo = false,
         TargetInfoSize = 13,
@@ -291,13 +297,56 @@ function Aimbot:RollHitChance()
     return math.random(1, 100) <= chance
 end
 
-function Aimbot:_aim(position)
+function Aimbot:_spring(position, dt)
+    local settings = self.Settings
+    local origin = Camera.CFrame.Position
+
+    if not self._springPoint then
+        self._springPoint = origin + Camera.CFrame.LookVector * 100
+        self._springVelocity = Vector3.zero
+    end
+
+    local wanted = position
+    local offset = wanted - self._springPoint
+
+    local acceleration = offset * settings.Stiffness
+    local velocity = (self._springVelocity + acceleration * dt)
+        * math.clamp(settings.Damping, 0.1, 0.999)
+
+    local limit = settings.MaxOvershoot
+    if limit > 0 and velocity.Magnitude > limit * 100 then
+        velocity = velocity.Unit * limit * 100
+    end
+
+    self._springVelocity = velocity
+    self._springPoint = self._springPoint + velocity * dt
+
+    return self._springPoint
+end
+
+function Aimbot:_resetSpring()
+    self._springPoint = nil
+    self._springVelocity = nil
+end
+
+function Aimbot:_aim(position, dt)
     local mode = self.Settings.Mode
 
     if mode == "Camera" then
-        local goal = CFrame.new(Camera.CFrame.Position, position)
-        local smooth = math.clamp(self.Settings.Smoothness, 0.01, 1)
-        Camera.CFrame = Camera.CFrame:Lerp(goal, self:_eased(smooth))
+        local point = position
+
+        if self.Settings.Elastic then
+            point = self:_spring(position, dt or 1 / 60)
+        end
+
+        local goal = CFrame.new(Camera.CFrame.Position, point)
+
+        if self.Settings.Elastic then
+            Camera.CFrame = goal
+        else
+            local smooth = math.clamp(self.Settings.Smoothness, 0.01, 1)
+            Camera.CFrame = Camera.CFrame:Lerp(goal, self:_eased(smooth))
+        end
 
     elseif mode == "Mouse" then
         if not mousemoverel then return end
@@ -415,6 +464,7 @@ function Aimbot:Load(handler)
             circle.Color = settings.FovColor
             line.Visible = false
             info.Visible = false
+            self:_resetSpring()
             return
         end
 
@@ -425,6 +475,7 @@ function Aimbot:Load(handler)
             circle.Color = settings.FovColor
             line.Visible = false
             info.Visible = false
+            self:_resetSpring()
             return
         end
 
@@ -444,7 +495,9 @@ function Aimbot:Load(handler)
 
         if settings.TargetLine and onScreen then
             line.Visible = true
-            line.From = aimOrigin()
+            line.From = settings.TargetLineOrigin == "Center"
+                and viewportCenter()
+                or cursorPoint()
             line.To = Vector2.new(screen.X, screen.Y)
             line.Color = settings.TargetLineColor
             line.Thickness = settings.TargetLineThickness
@@ -466,7 +519,7 @@ function Aimbot:Load(handler)
             info.Visible = false
         end
 
-        self:_aim(self:_predict(part))
+        self:_aim(self:_predict(part), dt)
         self:_trigger()
     end)
 
