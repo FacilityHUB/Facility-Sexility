@@ -40,7 +40,7 @@ end)
 
 local Window = Library:Window({
 	Title             = "Facility",
-	Suffix            = ".esp",
+	Suffix            = ".Sexility",
 	Width             = 700,
 	Height            = 580,
 	MinWidth          = 580,
