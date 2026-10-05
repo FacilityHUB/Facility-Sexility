@@ -1,3 +1,5 @@
+--!nocheck
+--!nolint UnknownGlobal
 
 local F       = shared.Facility
 local Library = F.Library
@@ -45,7 +47,6 @@ local Window = Library:Window({
 	SectionTitleStyle = "border",
 })
 
-local Farm     = Window:Tab("Farm", "coins")
 local Combat   = Window:Tab("Combat", "crosshair")
 local Movements = Window:Tab("Movement", "move")
 local Visuals  = Window:Tab("Visuals", "eye")
@@ -198,416 +199,6 @@ if Movement then
 
 Movement.Settings.WalkSpeedMode = "Velocity"
 Movement.Settings.JumpMode = "Humanoid"
-
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local TweenService = game:GetService("TweenService")
-
-local DEPOSIT_FORWARD = 25
-local DEPOSIT_LATERAL = { -20, 0, 20 }
-local CRATE_CYCLE = 3
-
-local AutoBuy = { Enabled = false, Colors = { "Vert", "Bleu" } }
-local AutoCrate = {
-	Enabled = false,
-	HoldTime = 15,
-	Speed = 120,
-	Altitude = 150,
-	Approach = 20,
-	Types = { "Air", "Land", "Naval" },
-}
-
-local farmStats = { bought = 0, collected = 0, sold = 0 }
-
-local function pressKey(keyCode)
-	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-	task.wait(0.06)
-	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-end
-
-local function holdKey(keyCode, duration)
-	VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-	task.wait(duration)
-	VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-end
-
-local function localRoot()
-	local character = LocalPlayer.Character
-	return character and character:FindFirstChild("HumanoidRootPart")
-end
-
-local function waitForRoot(timeout)
-	local deadline = tick() + (timeout or 5)
-	repeat
-		local root = localRoot()
-		if root then return root end
-		task.wait(0.1)
-	until tick() > deadline
-	return nil
-end
-
-local function tweenRootTo(target, speed)
-	local root = waitForRoot(3)
-	if not root or not target then return false end
-
-	local distance = (target.Position - root.Position).Magnitude
-	local duration = math.max(distance / math.max(speed, 1), 0.05)
-
-	local tween = TweenService:Create(root,
-		TweenInfo.new(duration, Enum.EasingStyle.Linear),
-		{ CFrame = target })
-
-	local humanoid = LocalPlayer.Character
-		and LocalPlayer.Character:FindFirstChildWhichIsA("Humanoid")
-
-	tween:Play()
-
-	local elapsed = 0
-	while tween.PlaybackState == Enum.PlaybackState.Playing do
-		if not AutoCrate.Enabled then
-			tween:Cancel()
-			return false
-		end
-		if humanoid and humanoid.Parent then
-			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-		end
-
-		elapsed = elapsed + task.wait(0.05)
-		if elapsed > duration + 2 then
-			tween:Cancel()
-			break
-		end
-	end
-
-	local current = localRoot()
-	if current then pcall(function() current.CFrame = target end) end
-	return true
-end
-
-local function localHumanoid()
-	local character = LocalPlayer.Character
-	return character and character:FindFirstChildWhichIsA("Humanoid")
-end
-
-local function suspendFalling(state)
-	local humanoid = localHumanoid()
-	if not humanoid then return end
-
-	pcall(function()
-		humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, not state)
-		humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not state)
-		humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not state)
-
-		if state then
-			humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-			humanoid.PlatformStand = true
-		else
-			humanoid.PlatformStand = false
-			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-		end
-	end)
-end
-
-local function flyToDeposit(spot)
-	local root = waitForRoot(3)
-	if not root or not spot then return false end
-
-	local depth = AutoCrate.Altitude
-	local approach = AutoCrate.Approach
-
-	suspendFalling(true)
-
-	local ok = tweenRootTo(root.CFrame - Vector3.new(0, depth, 0), AutoCrate.Speed)
-		and tweenRootTo(spot - Vector3.new(0, depth, 0), AutoCrate.Speed)
-		and tweenRootTo(spot - Vector3.new(0, approach, 0), AutoCrate.Speed)
-		and tweenRootTo(spot, AutoCrate.Speed)
-
-	suspendFalling(false)
-	return ok
-end
-
-local function teleportTo(cframe)
-	local root = waitForRoot(3)
-	if not root or not cframe then return false end
-	pcall(function() root.CFrame = cframe end)
-	return true
-end
-
-local function findTycoon()
-	local container = workspace:FindFirstChild("Tycoon")
-	local list = container and container:FindFirstChild("Tycoons")
-	if not list then return nil end
-
-	for _, tycoon in ipairs(list:GetChildren()) do
-		local owner = tycoon:FindFirstChild("Owner")
-		if owner and owner.Value == LocalPlayer then return tycoon end
-	end
-	return nil
-end
-
-local function diamondPlateCFrame()
-	local tycoon = findTycoon()
-	if not tycoon then return nil end
-
-	local cframe
-	pcall(function()
-		local part = tycoon.Essentials["Oil Collector"].Collector.Part
-		if part and part:IsA("BasePart") then cframe = part.CFrame end
-	end)
-	return cframe
-end
-
-local function depositSpot(plate, index)
-	if not plate then return nil end
-	local lateral = DEPOSIT_LATERAL[index]
-	if not lateral then return nil end
-
-	return plate
-		+ (-plate.LookVector * DEPOSIT_FORWARD)
-		+ (plate.RightVector * lateral)
-end
-
-local function crateFolder()
-	local systems = workspace:FindFirstChild("Game Systems")
-	local collectibles = systems and systems:FindFirstChild("Collectibles Workspace")
-	return collectibles and collectibles:FindFirstChild("PartCrate")
-end
-
-local function cratePosition(crate)
-	if crate:IsA("BasePart") then return crate.Position end
-	if crate:IsA("Model") and crate.PrimaryPart then return crate.PrimaryPart.Position end
-	local part = crate:FindFirstChildWhichIsA("BasePart")
-	return part and part.Position or nil
-end
-
-local function matchesType(name)
-	for _, prefix in ipairs(AutoCrate.Types) do
-		if name:sub(1, #prefix + 1) == prefix .. "_" then return true end
-	end
-	return false
-end
-
-local function findCrate(plate, taken)
-	local folder = crateFolder()
-	if not folder then return nil end
-
-	local exclusion = DEPOSIT_FORWARD + 26
-
-	for _, crate in ipairs(folder:GetChildren()) do
-		if matchesType(crate.Name) and not taken[crate] then
-			local owner = crate:GetAttribute("Owner")
-			local position = cratePosition(crate)
-
-			if position and tostring(owner) ~= LocalPlayer.Name then
-				local clear = true
-				if plate then
-					clear = (position - plate.Position).Magnitude > exclusion
-				end
-				if clear then return crate, position end
-			end
-		end
-	end
-	return nil
-end
-
-local function isButtonValid(button)
-	local neon = button:FindFirstChild("Neon")
-	if not (neon and neon:IsA("BasePart")) then return false end
-
-	for _, color in ipairs(AutoBuy.Colors) do
-		if color == "Vert" and neon.Color == Color3.fromRGB(0, 255, 0) then return true end
-		if color == "Bleu" and neon.Color == Color3.fromRGB(4, 175, 235) then return true end
-	end
-	return false
-end
-
-local function buyButton(button)
-	local neon = button:FindFirstChild("Neon")
-	if not neon then return end
-
-	local elapsed = 0
-	while AutoBuy.Enabled and button.Parent and isButtonValid(button) and elapsed < 5 do
-		local root = localRoot()
-		if root then
-			pcall(function() root.CFrame = neon.CFrame + Vector3.new(0, 5, 0) end)
-		end
-		elapsed = elapsed + task.wait(0.4)
-	end
-
-	if button.Parent == nil or not isButtonValid(button) then
-		farmStats.bought = farmStats.bought + 1
-	end
-end
-
-local function runAutoBuy()
-	while AutoBuy.Enabled do
-		local tycoon = findTycoon()
-		local folder = tycoon and tycoon:FindFirstChild("UnpurchasedButtons")
-
-		if folder then
-			for _, button in ipairs(folder:GetChildren()) do
-				if not AutoBuy.Enabled then return end
-				if isButtonValid(button) then buyButton(button) end
-			end
-		end
-
-		if not AutoBuy.Enabled then return end
-		task.wait(1)
-	end
-end
-
-local function runAutoCrate()
-	while AutoCrate.Enabled do
-		local plate = diamondPlateCFrame()
-
-		if not plate then
-			Library:Warn("Farm", "Diamond plate not found, retrying.", 4)
-			task.wait(3)
-		else
-			local stored = {}
-			local taken = {}
-
-			for index = 1, CRATE_CYCLE do
-				if not AutoCrate.Enabled then return end
-
-				local crate, position = findCrate(plate, taken)
-				if not crate then
-					task.wait(2)
-					break
-				end
-
-				taken[crate] = true
-
-				if not teleportTo(CFrame.new(position) + Vector3.new(0, 1, 0)) then break end
-				task.wait(0.5)
-
-				holdKey(Enum.KeyCode.E, 2)
-				holdKey(Enum.KeyCode.E, 2)
-
-				if not AutoCrate.Enabled then return end
-
-				local spot = depositSpot(plate, index)
-				if spot and flyToDeposit(spot) then
-					local waited = 0
-					while AutoCrate.Enabled and waited < AutoCrate.HoldTime do
-						waited = waited + task.wait(0.5)
-					end
-					if not AutoCrate.Enabled then return end
-
-					holdKey(Enum.KeyCode.X, 0.5)
-					task.wait(0.3)
-
-					table.insert(stored, spot)
-					farmStats.collected = farmStats.collected + 1
-				end
-			end
-
-			for _, spot in ipairs(stored) do
-				if not AutoCrate.Enabled then return end
-
-				if teleportTo(spot) then
-					task.wait(0.5)
-					holdKey(Enum.KeyCode.E, 1)
-
-					if not AutoCrate.Enabled then return end
-
-					if teleportTo(plate) then
-						task.wait(1.5)
-						holdKey(Enum.KeyCode.E, 1.5)
-						task.wait(1)
-						farmStats.sold = farmStats.sold + 1
-					end
-				end
-			end
-
-			if #stored == 0 then task.wait(2) end
-		end
-	end
-end
-
-local buyBox = Farm:Section("Auto Buy", 1)
-
-buyBox:Toggle({
-	Text = "Auto Buy",
-	Flag = "farm_autobuy",
-	Default = false,
-	Callback = function(state)
-		AutoBuy.Enabled = state
-		if state then task.spawn(runAutoBuy) end
-	end,
-})
-
-buyBox:Dropdown({
-	Text = "Colors",
-	Flag = "farm_autobuy_colors",
-	Options = { "Vert", "Bleu" },
-	Default = { "Vert", "Bleu" },
-	Multi = true,
-	Empty = "None",
-	Callback = function(selected)
-		AutoBuy.Colors = #selected > 0 and selected or { "Vert" }
-	end,
-})
-
-local crateBox = Farm:Section("Auto Crate", 2)
-
-crateBox:Toggle({
-	Text = "Auto Crate",
-	Flag = "farm_autocrate",
-	Default = false,
-	Callback = function(state)
-		AutoCrate.Enabled = state
-		if state then task.spawn(runAutoCrate) end
-	end,
-})
-
-crateBox:Dropdown({
-	Text = "Types",
-	Flag = "farm_crate_types",
-	Options = { "Air", "Land", "Naval" },
-	Default = { "Air", "Land", "Naval" },
-	Multi = true,
-	Empty = "None",
-	Callback = function(selected)
-		AutoCrate.Types = #selected > 0 and selected or { "Air" }
-	end,
-})
-
-crateBox:Slider({
-	Text = "Hold Time",
-	Flag = "farm_crate_hold",
-	Min = 5, Max = 40, Default = 15,
-	Suffix = " s",
-	Callback = function(value) AutoCrate.HoldTime = value end,
-})
-
-crateBox:Slider({
-	Text = "Travel Speed",
-	Flag = "farm_crate_speed",
-	Min = 30, Max = 400, Default = 120,
-	Suffix = " s/s",
-	Callback = function(value) AutoCrate.Speed = value end,
-})
-
-crateBox:Slider({
-	Text = "Depth",
-	Flag = "farm_crate_altitude",
-	Min = 20, Max = 400, Default = 150,
-	Suffix = " studs",
-	Callback = function(value) AutoCrate.Altitude = value end,
-})
-
-
-
-local statsBox = Farm:Section("Stats", 1)
-
-local statLine = statsBox:Label("-", { Style = "bright" })
-
-task.spawn(function()
-	while task.wait(1) do
-		statLine:Set(("Bought %d  |  Crates %d  |  Sold %d")
-			:format(farmStats.bought, farmStats.collected, farmStats.sold))
-	end
-end)
 
 local flyBox = Movements:Section("Fly", 1)
 
@@ -1235,6 +826,168 @@ local function hookSilentAim()
 	SilentAim.Hooked = true
 	return true
 end
+
+local GunMod = {
+	Settings = {
+		InfiniteAmmo = false,
+		AmmoValue = 9999,
+		NoRecoil = false,
+		InfiniteDistance = false,
+		DistanceValue = 20000,
+		BulletSpeed = 9999,
+		NoDrop = true,
+		NoSpread = false,
+	},
+	Hooked = false,
+}
+
+local function patchGunConfig(config)
+	if type(config) ~= "table" then return config end
+
+	local settings = GunMod.Settings
+
+	if settings.InfiniteAmmo then
+		local amount = settings.AmmoValue
+		config.Ammo = amount
+		config.StoredAmmo = amount
+		config.MagCount = amount
+		config.IncludeChamberedBullet = true
+	end
+
+	if settings.NoRecoil then
+		config.RecoilPunch = 0
+		config.VPunchBase = 0
+		config.MaxRecoilPower = 0
+		config.RecoilPowerStepAmount = 0
+		config.CamRecoilPower = 0
+		config.AimRecoilReduction = 1
+		config.PunchRecover = 1
+		config.AimRecover = 1
+
+		if type(config.VRecoil) == "table" then config.VRecoil = { 0, 0 } end
+		if type(config.HRecoil) == "table" then config.HRecoil = { 0, 0 } end
+	end
+
+	if settings.InfiniteDistance then
+		config.Distance = settings.DistanceValue
+		config.BSpeed = settings.BulletSpeed
+		if settings.NoDrop then config.BDrop = 0 end
+	end
+
+	if settings.NoSpread then
+		config.MinSpread = 0
+		config.MaxSpread = 0
+		config.AimInaccuracyStepAmount = 0
+		config.WalkMultiplier = 0
+	end
+
+	return config
+end
+
+local function hookGunMod()
+	if GunMod.Hooked then return true end
+
+	if not (hookmetamethod and getnamecallmethod) then
+		Library:Error("Weapon", "Your executor does not support metamethod hooks.", 8)
+		return false
+	end
+
+	local engine = ReplicatedStorage:FindFirstChild("ACS_Engine")
+	local events = engine and engine:FindFirstChild("Events")
+	local equip = events and events:FindFirstChild("Equip")
+
+	if not equip then
+		Library:Error("Weapon", "ACS_Engine.Events.Equip not found.", 8)
+		return false
+	end
+
+	GunMod.Event = equip
+
+	local original
+	original = hookmetamethod(game, "__namecall", function(self, ...)
+		if rawequal(self, equip) and getnamecallmethod() == "FireServer" then
+			local gun, config = ...
+			if type(config) == "table" then
+				patchGunConfig(config)
+				return original(self, gun, config)
+			end
+		end
+		return original(self, ...)
+	end)
+
+	GunMod.Hooked = true
+	return true
+end
+
+local function reequipGun()
+	local character = LocalPlayer.Character
+	local tool = character and character:FindFirstChildWhichIsA("Tool")
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+
+	if not tool or not backpack then return false end
+
+	tool.Parent = backpack
+	task.wait(0.15)
+	tool.Parent = character
+	return true
+end
+
+local function applyGunMod()
+	if not hookGunMod() then return false end
+	task.spawn(reequipGun)
+	return true
+end
+
+local gunBox = Combat:Section("Weapon", 1)
+
+gunBox:Toggle({
+	Text = "Infinite Ammo",
+	Flag = "gun_infinite_ammo",
+	Default = false,
+	Callback = function(state)
+		GunMod.Settings.InfiniteAmmo = state
+		applyGunMod()
+	end,
+})
+
+gunBox:Toggle({
+	Text = "No Recoil",
+	Flag = "gun_no_recoil",
+	Default = false,
+	Callback = function(state)
+		GunMod.Settings.NoRecoil = state
+		applyGunMod()
+	end,
+})
+
+gunBox:Toggle({
+	Text = "Infinite Distance",
+	Flag = "gun_infinite_distance",
+	Default = false,
+	Callback = function(state)
+		GunMod.Settings.InfiniteDistance = state
+		applyGunMod()
+	end,
+})
+
+gunBox:Toggle({
+	Text = "No Spread",
+	Flag = "gun_no_spread",
+	Default = false,
+	Callback = function(state)
+		GunMod.Settings.NoSpread = state
+		applyGunMod()
+	end,
+})
+
+gunBox:Button({
+	Text = "Reapply",
+	Callback = function()
+		if applyGunMod() then
+			Library:Success("Weapon", "Patch reapplied to the held gun.", 3)
+		end
+	end,
+})
 
 local silentBox = Combat:Section("Silent Aim", 2)
 
