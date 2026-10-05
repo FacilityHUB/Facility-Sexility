@@ -40,7 +40,7 @@ end)
 
 local Window = Library:Window({
 	Title             = "Facility",
-	Suffix            = ".Sexility",
+	Suffix            = ".esp",
 	Width             = 700,
 	Height            = 580,
 	MinWidth          = 580,
@@ -616,6 +616,31 @@ aimBox:Slider({
 	end,
 })
 
+aimBox:Dropdown({
+	Text = "Easing Style",
+	Flag = "aim_easing_style",
+	Options = { "Linear", "Sine", "Quad", "Cubic", "Quart", "Quint", "Exponential", "Back" },
+	Default = "Quad",
+	Callback = function(value) Aimbot.Settings.EasingStyle = value end,
+})
+
+aimBox:Dropdown({
+	Text = "Easing Direction",
+	Flag = "aim_easing_direction",
+	Options = { "In", "Out", "InOut" },
+	Default = "Out",
+	Callback = function(value) Aimbot.Settings.EasingDirection = value end,
+})
+
+aimBox:Slider({
+	Text = "Switch Delay",
+	Flag = "aim_switch_delay",
+	Min = 0, Max = 2, Default = 0,
+	Decimals = 2,
+	Suffix = " s",
+	Callback = function(value) Aimbot.Settings.SwitchDelay = value end,
+})
+
 aimBox:Slider({
 	Text = "Max Distance",
 	Flag = "aim_max_distance",
@@ -692,6 +717,67 @@ behaviourBox:Toggle({
 })
 
 behaviourBox:Toggle({
+	Text = "Ignore Downed",
+	Flag = "aim_ignore_downed",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.IgnoreDowned = state end,
+})
+
+behaviourBox:Toggle({
+	Text = "Ignore Forcefield",
+	Flag = "aim_ignore_forcefield",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.IgnoreForcefield = state end,
+})
+
+behaviourBox:Slider({
+	Text = "Deadzone",
+	Flag = "aim_deadzone",
+	Min = 0, Max = 200, Default = 0,
+	Callback = function(value) Aimbot.Settings.Deadzone = value end,
+})
+
+behaviourBox:Toggle({
+	Text = "Target Line",
+	Flag = "aim_target_line",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.TargetLine = state end,
+})
+	:ColorPicker({
+		Flag = "aim_target_line_color",
+		Default = Color3.fromRGB(255, 70, 70),
+		Callback = function(color) Aimbot.Settings.TargetLineColor = color end,
+	})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Thickness",
+			Flag = "aim_target_line_thickness",
+			Min = 1, Max = 5, Default = 1,
+			Callback = function(value) Aimbot.Settings.TargetLineThickness = value end,
+		})
+	end)
+
+behaviourBox:Toggle({
+	Text = "Target Info",
+	Flag = "aim_target_info",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.TargetInfo = state end,
+})
+	:ColorPicker({
+		Flag = "aim_target_info_color",
+		Default = Color3.fromRGB(255, 255, 255),
+		Callback = function(color) Aimbot.Settings.TargetInfoColor = color end,
+	})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Text Size",
+			Flag = "aim_target_info_size",
+			Min = 8, Max = 24, Default = 13,
+			Callback = function(value) Aimbot.Settings.TargetInfoSize = value end,
+		})
+	end)
+
+behaviourBox:Toggle({
 	Text = "Sticky Target",
 	Flag = "aim_sticky",
 	Default = true,
@@ -728,7 +814,35 @@ local SilentAim = {
 	Enabled = false,
 	IgnoreSeated = false,
 	Hooked = false,
+	HitChance = 100,
+	HitPart = "Head",
+	RandomPart = false,
+	Fov = 0,
 }
+
+local SILENT_PARTS = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
+
+local function silentRoll()
+	local chance = SilentAim.HitChance
+	if chance >= 100 then return true end
+	if chance <= 0 then return false end
+	return math.random(1, 100) <= chance
+end
+
+local function silentPart(record)
+	local character = record.Character
+	if not character then return nil end
+
+	local name = SilentAim.HitPart
+	if SilentAim.RandomPart then
+		name = SILENT_PARTS[math.random(1, #SILENT_PARTS)]
+	end
+
+	local part = character:FindFirstChild(name)
+	if part and part:IsA("BasePart") then return part end
+
+	return record.Head or record.RootPart
+end
 
 local function silentTarget(origin)
 	if not Entity then return nil end
@@ -748,7 +862,7 @@ local function silentTarget(origin)
 
 		if not (SilentAim.IgnoreSeated and seated) then
 			if not settings.AliveCheck or (record.Health or 1) > 0 then
-				local part = Aimbot:_partOf(record)
+				local part = silentPart(record)
 
 				if part then
 					local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
@@ -758,7 +872,8 @@ local function silentTarget(origin)
 						local fromAim = (flat - aim).Magnitude
 						local distance = (origin - part.Position).Magnitude
 
-						local inFov = not settings.FovCheck or fromAim <= settings.Fov
+						local radius = SilentAim.Fov > 0 and SilentAim.Fov or settings.Fov
+						local inFov = not settings.FovCheck or fromAim <= radius
 						local inRange = distance <= settings.MaxDistance
 
 						if inFov and inRange and Aimbot:_visible(record, part) then
@@ -773,6 +888,7 @@ local function silentTarget(origin)
 	end
 
 	if not bestPart then return nil end
+	if not silentRoll() then return nil end
 
 	if settings.Prediction then
 		local velocity = bestPart.AssemblyLinearVelocity
@@ -1013,7 +1129,37 @@ silentBox:Toggle({
 	Callback = function(state) SilentAim.IgnoreSeated = state end,
 })
 
-silentBox:Label("Uses the fov and checks above", { Style = "dim" })
+silentBox:Slider({
+	Text = "Own Fov",
+	Flag = "silent_fov",
+	Min = 0, Max = 600, Default = 0,
+	Callback = function(value) SilentAim.Fov = value end,
+})
+
+silentBox:Slider({
+	Text = "Hit Chance",
+	Flag = "silent_hit_chance",
+	Min = 0, Max = 100, Default = 100,
+	Suffix = "%",
+	Callback = function(value) SilentAim.HitChance = value end,
+})
+
+silentBox:Dropdown({
+	Text = "Hit Part",
+	Flag = "silent_hit_part",
+	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
+	Default = "Head",
+	Callback = function(value) SilentAim.HitPart = value end,
+})
+
+silentBox:Toggle({
+	Text = "Random Part",
+	Flag = "silent_random_part",
+	Default = false,
+	Callback = function(state) SilentAim.RandomPart = state end,
+})
+
+silentBox:Label("Own Fov at 0 reuses the aimbot fov", { Style = "dim" })
 
 local triggerBox = Combat:Section("Trigger Bot", 1)
 
