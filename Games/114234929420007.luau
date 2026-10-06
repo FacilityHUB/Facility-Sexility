@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -132,6 +129,38 @@ Esp.teamSettings.friendly.nameColor = { Color3.fromRGB(80, 200, 120), 1 }
 
 Entity.Settings.TeamCheck = "Team"
 Esp.sharedSettings.teamCheck = "Team"
+Esp.sharedSettings.bodyPartsOnly = true
+
+local BODY_PARTS = {
+	Head = true,
+	UpperTorso = true,
+	LowerTorso = true,
+	HumanoidRootPart = true,
+	LeftUpperArm = true,
+	LeftLowerArm = true,
+	LeftHand = true,
+	RightUpperArm = true,
+	RightLowerArm = true,
+	RightHand = true,
+	LeftUpperLeg = true,
+	LeftLowerLeg = true,
+	LeftFoot = true,
+	RightUpperLeg = true,
+	RightLowerLeg = true,
+	RightFoot = true,
+}
+
+Esp.getBoxParts = function(model)
+	local parts = {}
+
+	for _, child in ipairs(model:GetChildren()) do
+		if child:IsA("BasePart") and BODY_PARTS[child.Name] then
+			parts[#parts + 1] = child
+		end
+	end
+
+	return parts
+end
 Esp.sharedSettings.bodyPartsOnly = true
 
 local BODY_PARTS = {
