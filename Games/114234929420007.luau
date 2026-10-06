@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -7,13 +10,34 @@ local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexil
 
 local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
 
+local moduleErrors = {}
+
 local function fetchModule(url, label)
-	local ok, result = pcall(function()
-		return loadstring(game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", "")))()
+	local fetched, source = pcall(function()
+		return game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", ""))
 	end)
 
-	if not ok or type(result) ~= "table" then
-		warn("Facility: could not load " .. label .. " from " .. url)
+	if not fetched or type(source) ~= "string" then
+		table.insert(moduleErrors, label .. ": download failed - " .. tostring(source))
+		return nil
+	end
+
+	local chunk, compileError = loadstring(source)
+
+	if not chunk then
+		table.insert(moduleErrors, label .. ": compile failed - " .. tostring(compileError))
+		return nil
+	end
+
+	local ok, result = pcall(chunk)
+
+	if not ok then
+		table.insert(moduleErrors, label .. ": runtime error - " .. tostring(result))
+		return nil
+	end
+
+	if type(result) ~= "table" then
+		table.insert(moduleErrors, label .. ": returned " .. typeof(result) .. " instead of a table")
 		return nil
 	end
 
@@ -27,6 +51,10 @@ if Movement then Movement:Load() end
 
 F.Aimbot = Aimbot
 F.Movement = Movement
+
+for _, message in ipairs(moduleErrors) do
+	warn("[Facility] " .. message)
+end
 
 local Players = game:GetService("Players")
 
@@ -52,6 +80,21 @@ local Combat    = Window:Tab("Combat", "crosshair")
 local Movements = Window:Tab("Movement", "move")
 local Visuals   = Window:Tab("Visuals", "eye")
 local Settings  = Window:Tab("Settings", "cog")
+
+if #moduleErrors > 0 then
+	local failBox = Combat:Section("Modules", 1)
+
+	for _, message in ipairs(moduleErrors) do
+		failBox:Label(message, { Style = "dim" })
+	end
+
+	task.spawn(function()
+		task.wait(1)
+		for _, message in ipairs(moduleErrors) do
+			Library:Error("Facility", message, 20)
+		end
+	end)
+end
 
 local PLAYER_TEAMS = { "enemy", "friendly", "whitelist" }
 
