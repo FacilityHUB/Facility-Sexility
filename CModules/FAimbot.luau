@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -13,8 +16,6 @@ local ENTITY_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexil
 local Entity
 
 local Aimbot = {
-    Version = "2026.10.06-trigger",
-
     Enabled = false,
     Active = false,
     Target = nil,
@@ -81,24 +82,6 @@ local Aimbot = {
         TriggerBot = false,
         TriggerDelay = 0.08,
         TriggerCooldown = 0.25,
-
-        Trigger = {
-            Mode = "Target",
-            Fov = 0,
-            Key = nil,
-            RequireAim = false,
-            ReactionTime = 0,
-            HoldFire = false,
-
-            WallCheck = true,
-            Multipoint = false,
-            TeamCheck = true,
-            AliveCheck = true,
-            MaxDistance = 2000,
-            HitChance = 100,
-
-            Parts = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
-        },
     },
 
     _connections = {},
@@ -196,10 +179,8 @@ local MULTIPOINT_OFFSETS = {
     Vector3.new(0, -1, 0),
 }
 
-function Aimbot:_points(part, multipoint)
-    if multipoint == nil then multipoint = self.Settings.Multipoint end
-
-    if not multipoint then
+function Aimbot:_points(part)
+    if not self.Settings.Multipoint then
         return { part.Position }
     end
 
@@ -214,13 +195,11 @@ function Aimbot:_points(part, multipoint)
     return points
 end
 
-function Aimbot:_visiblePoint(record, part, wallCheck, multipoint)
-    if wallCheck == nil then wallCheck = self.Settings.WallCheck end
-    if multipoint == nil then multipoint = self.Settings.Multipoint end
+function Aimbot:_visiblePoint(record, part)
+    local points = self:_points(part)
+    local multipoint = self.Settings.Multipoint
 
-    local points = self:_points(part, multipoint)
-
-    if not wallCheck then
+    if not self.Settings.WallCheck then
         if not multipoint then return points[1] end
         return points[math.random(1, #points)]
     end
@@ -488,6 +467,7 @@ function Aimbot:_aim(position, dt)
 end
 
 function Aimbot:_trigger()
+    if not self.Settings.TriggerBot then return end
     if self._triggering then return end
 
     local now = tick()
@@ -504,172 +484,6 @@ function Aimbot:_trigger()
         end)
         self._triggering = false
     end)
-end
-
-function Aimbot:_triggerKeyDown()
-    local key = self.Settings.Trigger.Key
-    if key == nil then return true end
-    if typeof(key) ~= "EnumItem" then return true end
-
-    if key.EnumType == Enum.UserInputType then
-        local ok, down = pcall(function()
-            return UserInputService:IsMouseButtonPressed(key)
-        end)
-        return ok and down == true
-    end
-
-    local ok, down = pcall(function()
-        return UserInputService:IsKeyDown(key)
-    end)
-    return ok and down == true
-end
-
-function Aimbot:_triggerPartOf(record)
-    local character = record.Character
-    if not character then return nil end
-
-    local names = self.Settings.Trigger.Parts
-
-    if type(names) == "table" then
-        for _, name in ipairs(names) do
-            local part = character:FindFirstChild(name)
-            if part and part:IsA("BasePart") then return part end
-        end
-    end
-
-    return record.Head or record.RootPart
-end
-
-function Aimbot:_triggerValid(record, part, config)
-    if not record or not part then return false end
-    if config.TeamCheck and not record.Targetable then return false end
-    if config.AliveCheck and (record.Health or 1) <= 0 then return false end
-
-    local distance = (Camera.CFrame.Position - part.Position).Magnitude
-    if distance > config.MaxDistance then return false end
-
-    if config.WallCheck then
-        local point = self:_visiblePoint(record, part, true, config.Multipoint)
-        if not point then return false end
-    end
-
-    return true
-end
-
-function Aimbot:_triggerPick(config)
-    if not Entity then return nil, nil end
-
-    if config.Mode == "Target" then
-        if not self.Target then return nil, nil end
-        local record = Entity:Get(self.Target)
-        if not record then return nil, nil end
-        return record, self:_triggerPartOf(record)
-    end
-
-    if config.Mode == "Crosshair" then
-        local params = self._triggerParams
-        if not params then
-            params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.IgnoreWater = true
-            self._triggerParams = params
-        end
-
-        local ignore = {}
-        if LocalPlayer.Character then table.insert(ignore, LocalPlayer.Character) end
-        if Entity.Self and Entity.Self.Character then
-            table.insert(ignore, Entity.Self.Character)
-        end
-        params.FilterDescendantsInstances = ignore
-
-        local cframe = Camera.CFrame
-        local hit = workspace:Raycast(cframe.Position, cframe.LookVector * config.MaxDistance, params)
-        if not hit then return nil, nil end
-
-        local model = hit.Instance:FindFirstAncestorOfClass("Model")
-        while model do
-            for _, record in pairs(Entity.Entities) do
-                if record.Character == model then
-                    return record, hit.Instance:IsA("BasePart") and hit.Instance or self:_triggerPartOf(record)
-                end
-            end
-            model = model:FindFirstAncestorOfClass("Model")
-        end
-
-        return nil, nil
-    end
-
-    local origin = aimOrigin()
-    local radius = config.Fov > 0 and config.Fov or 12
-    local best, bestPart, bestScore = nil, nil, math.huge
-
-    for _, record in pairs(Entity.Entities) do
-        if record.Alive then
-            local part = self:_triggerPartOf(record)
-
-            if part then
-                local screen, onScreen = Camera:WorldToViewportPoint(part.Position)
-
-                if onScreen then
-                    local distance = (Vector2.new(screen.X, screen.Y) - origin).Magnitude
-                    if distance <= radius and distance < bestScore then
-                        best, bestPart, bestScore = record, part, distance
-                    end
-                end
-            end
-        end
-    end
-
-    return best, bestPart
-end
-
-function Aimbot:_triggerUpdate()
-    local config = self.Settings.Trigger
-
-    if not self.Settings.TriggerBot or not self.Enabled then
-        self._triggerSince = nil
-        return
-    end
-
-    if config.RequireAim and not self.Active then
-        self._triggerSince = nil
-        return
-    end
-
-    if not self:_triggerKeyDown() then
-        self._triggerSince = nil
-        return
-    end
-
-    local record, part = self:_triggerPick(config)
-
-    if not self:_triggerValid(record, part, config) then
-        self._triggerSince = nil
-        return
-    end
-
-    local now = tick()
-
-    if not self._triggerSince then
-        self._triggerSince = now
-        self._triggerRolled = nil
-    end
-
-    if now - self._triggerSince < (config.ReactionTime or 0) then return end
-
-    if self._triggerRolled == nil then
-        local chance = config.HitChance or 100
-        self._triggerRolled = chance >= 100 or (chance > 0 and math.random(1, 100) <= chance)
-    end
-
-    if not self._triggerRolled then return end
-
-    self:_trigger()
-
-    if not config.HoldFire then
-        self._triggerSince = nil
-        self._triggerRolled = nil
-    end
 end
 
 function Aimbot:SetKey(key)
@@ -761,7 +575,6 @@ function Aimbot:Load(handler)
             line.Visible = false
             info.Visible = false
             self:_resetSpring()
-            self:_triggerUpdate()
             return
         end
 
@@ -773,7 +586,6 @@ function Aimbot:Load(handler)
             line.Visible = false
             info.Visible = false
             self:_resetSpring()
-            self:_triggerUpdate()
             return
         end
 
@@ -781,7 +593,6 @@ function Aimbot:Load(handler)
             local now = tick()
             if now - (self._lastSwitch or 0) < settings.SwitchDelay then
                 circle.Color = settings.FovLockColor
-                self:_triggerUpdate()
                 return
             end
             self._lastSwitch = now
@@ -820,7 +631,7 @@ function Aimbot:Load(handler)
         end
 
         self:_aim(self:_predict(part, aimPoint), dt)
-        self:_triggerUpdate()
+        self:_trigger()
     end)
 
     self._loaded = true
