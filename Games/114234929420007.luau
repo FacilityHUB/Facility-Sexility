@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -1009,7 +1012,15 @@ aimBox:Toggle({
 	Default = false,
 	Callback = function(state)
 		if state then
-			pcall(function() Aimbot:Load(Entity) end)
+			local ok, err = pcall(function() Aimbot:Load(Entity) end)
+			if not ok then
+				Library:Error("Aimbot", tostring(err), 10)
+				return
+			end
+
+			if Aimbot.Settings.Mode == "Mouse" and type(mousemoverel) ~= "function" then
+				Library:Error("Aimbot", "Your executor has no mousemoverel, switch Mode to Camera.", 8)
+			end
 		end
 		Aimbot.Enabled = state
 	end,
@@ -1037,6 +1048,24 @@ aimBox:Toggle({
 	Callback = function(state) Aimbot.Settings.ToggleMode = state end,
 })
 
+Aimbot.Settings.Mode = "Mouse"
+
+aimBox:Dropdown({
+	Text = "Mode",
+	Flag = "aim_mode",
+	Options = { "Mouse", "Camera" },
+	Default = "Mouse",
+	Callback = function(value)
+		Aimbot.Settings.Mode = value
+
+		if value == "Mouse" and type(mousemoverel) ~= "function" then
+			Library:Error("Aimbot", "Your executor has no mousemoverel, use Camera mode.", 8)
+		elseif value == "Camera" then
+			Library:Notify("Aimbot", "This game drives its own camera, Camera mode may be overridden.", 6)
+		end
+	end,
+})
+
 aimBox:Dropdown({
 	Text = "Priority",
 	Flag = "aim_priority",
@@ -1059,15 +1088,37 @@ aimBox:Dropdown({
 })
 
 aimBox:Slider({
+	Text = "Sensitivity",
+	Flag = "aim_sensitivity",
+	Min = 0.02, Max = 1, Default = 0.35,
+	Decimals = 2,
+	Callback = function(value) Aimbot.Settings.Sensitivity = value end,
+})
+
+aimBox:Slider({
 	Text = "Smoothness",
 	Flag = "aim_smoothness",
 	Min = 0.05, Max = 1, Default = 0.25,
 	Decimals = 2,
-	Callback = function(value)
-		Aimbot.Settings.Smoothness = value
-		Aimbot.Settings.Sensitivity = value
-	end,
+	Callback = function(value) Aimbot.Settings.Smoothness = value end,
 })
+
+aimBox:Toggle({
+	Text = "Random Part",
+	Flag = "aim_random_part",
+	Default = false,
+	Callback = function(state) Aimbot.Settings.RandomPart = state end,
+})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Interval",
+			Flag = "aim_random_interval",
+			Min = 0.1, Max = 3, Default = 1,
+			Decimals = 1,
+			Suffix = " s",
+			Callback = function(value) Aimbot.Settings.RandomInterval = value end,
+		})
+	end)
 
 aimBox:Toggle({
 	Text = "Elastic Aim",
@@ -1295,6 +1346,12 @@ behaviourBox:Toggle({
 			Decimals = 2,
 			Suffix = " s",
 			Callback = function(value) Aimbot.Settings.PredictionTime = value end,
+		})
+		panel:Toggle({
+			Text = "Add Ping",
+			Flag = "aim_prediction_ping",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.PingPrediction = state end,
 		})
 	end)
 
