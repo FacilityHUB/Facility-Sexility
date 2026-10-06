@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -67,6 +70,7 @@ Entity.Settings.TeamCheck = "Team"
 Esp.sharedSettings.teamCheck = "Team"
 
 local charFolderCache
+local charByPlayer = {}
 
 local function charFolder()
 	if charFolderCache and charFolderCache.Parent then return charFolderCache end
@@ -81,23 +85,57 @@ local function isCharacter(model)
 		and model:FindFirstChildWhichIsA("Humanoid") ~= nil
 end
 
-local function characterOf(player)
-	local own = player.Character
-	if isCharacter(own) then return own end
+local function playerOfModel(model)
+	local player = Players:GetPlayerFromCharacter(model)
+	if player then return player end
 
-	local folder = charFolder()
-	if not folder then return nil end
+	player = Players:FindFirstChild(model.Name)
+	if player then return player end
 
-	local model = folder:FindFirstChild(player.Name)
-	if isCharacter(model) then return model end
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other.DisplayName == model.Name then return other end
+	end
 
 	return nil
 end
 
-local function playerOfModel(model)
-	local player = Players:GetPlayerFromCharacter(model)
-	if player then return player end
-	return Players:FindFirstChild(model.Name)
+local function scanFolder()
+	local found = {}
+
+	local folder = charFolder()
+	if not folder then return found end
+
+	for _, model in ipairs(folder:GetChildren()) do
+		if isCharacter(model) then
+			local player = playerOfModel(model)
+			if player and not found[player] then found[player] = model end
+		end
+	end
+
+	charByPlayer = found
+	return found
+end
+
+local function characterOf(player)
+	local cached = charByPlayer[player]
+	if isCharacter(cached) then return cached end
+
+	local own = player.Character
+	if isCharacter(own) then
+		charByPlayer[player] = own
+		return own
+	end
+
+	return scanFolder()[player]
+end
+
+local function cleanGroup(value)
+	if value == nil then return nil end
+
+	local text = tostring(value)
+	if text == "" or text == "Default" then return nil end
+
+	return text
 end
 
 local function teamOf(player)
@@ -107,13 +145,27 @@ local function teamOf(player)
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then return nil end
 
-	local attribute = root:GetAttribute("CollisionGroup")
-	if attribute ~= nil and attribute ~= "" then return tostring(attribute) end
+	local attribute = cleanGroup(root:GetAttribute("CollisionGroup"))
+	if attribute then return attribute end
 
 	local ok, group = pcall(function() return root.CollisionGroup end)
-	if ok and type(group) == "string" and group ~= "" then return group end
+	if ok then return cleanGroup(group) end
 
 	return nil
+end
+
+local function allSameGroup(mine)
+	local present = charByPlayer
+	local seen = 0
+
+	for player in pairs(present) do
+		if player ~= LocalPlayer then
+			seen = seen + 1
+			if teamOf(player) ~= mine then return false end
+		end
+	end
+
+	return seen > 0
 end
 
 function Entity:IsTargetable(player)
@@ -122,8 +174,9 @@ function Entity:IsTargetable(player)
 
 	local mine, theirs = teamOf(LocalPlayer), teamOf(player)
 	if mine == nil or theirs == nil then return true end
+	if mine ~= theirs then return true end
 
-	return mine ~= theirs
+	return allSameGroup(mine)
 end
 
 function Entity:Refresh(player, isLocal)
@@ -139,20 +192,25 @@ local function bindFolder(folder)
 		local player = playerOfModel(model)
 		if not player then return end
 
+		charByPlayer[player] = model
 		Entity:Refresh(player, player == LocalPlayer)
 	end)
 
 	folder.ChildRemoved:Connect(function(model)
-		local player = playerOfModel(model)
-		if not player then return end
+		for player, character in pairs(charByPlayer) do
+			if character == model then
+				charByPlayer[player] = nil
 
-		if player == LocalPlayer then
-			Entity.Self.Alive = false
-			return
+				if player == LocalPlayer then
+					Entity.Self.Alive = false
+				else
+					local ent = Entity.Entities[player]
+					if ent and ent.Character == model then Entity:Remove(player) end
+				end
+
+				return
+			end
 		end
-
-		local ent = Entity.Entities[player]
-		if ent and ent.Character == model then Entity:Remove(player) end
 	end)
 end
 
@@ -166,16 +224,17 @@ task.spawn(function()
 	charFolderCache = folder
 	bindFolder(folder)
 
-	for _, model in ipairs(folder:GetChildren()) do
-		local player = isCharacter(model) and playerOfModel(model)
-		if player then Entity:Refresh(player, player == LocalPlayer) end
+	for player in pairs(scanFolder()) do
+		Entity:Refresh(player, player == LocalPlayer)
 	end
 end)
 
 task.spawn(function()
 	while task.wait(1) do
 		pcall(function()
-			local mine = characterOf(LocalPlayer)
+			local present = scanFolder()
+
+			local mine = present[LocalPlayer]
 			if mine then
 				if Entity.Self.Character ~= mine or not Entity.Self.Alive then
 					Entity:Refresh(LocalPlayer, true)
@@ -184,19 +243,17 @@ task.spawn(function()
 				Entity.Self.Alive = false
 			end
 
-			for _, other in ipairs(Players:GetPlayers()) do
-				if other ~= LocalPlayer then
-					local character = characterOf(other)
-					local ent = Entity.Entities[other]
-
-					if character then
-						if not ent or ent.Character ~= character then
-							Entity:Refresh(other, false)
-						end
-					elseif ent then
-						Entity:Remove(other)
+			for player, character in pairs(present) do
+				if player ~= LocalPlayer then
+					local ent = Entity.Entities[player]
+					if not ent or ent.Character ~= character then
+						Entity:Refresh(player, false)
 					end
 				end
+			end
+
+			for player in pairs(Entity.Entities) do
+				if not present[player] then Entity:Remove(player) end
 			end
 
 			Entity:RefreshTargets()
@@ -356,10 +413,14 @@ espBox:Toggle({
 	Flag = "esp_enable",
 	Default = false,
 	Callback = function(state)
+		local ok, err
 		if state then
-			pcall(function() Esp:Load(Entity) end)
+			ok, err = pcall(function() Esp:Load(Entity) end)
 		else
-			pcall(function() Esp:Unload() end)
+			ok, err = pcall(function() Esp:Unload() end)
+		end
+		if not ok then
+			Library:Error("Esp", tostring(err), 10)
 		end
 	end,
 })
@@ -633,6 +694,41 @@ whitelistDropdown = checkBox:Dropdown({
 checkBox:Button({
 	Text = "Refresh Players",
 	Callback = function() whitelistDropdown:SetOptions(playerNames()) end,
+})
+
+checkBox:Button({
+	Text = "Debug Targets",
+	Callback = function()
+		local present = scanFolder()
+		local models, tracked, targets = 0, 0, 0
+
+		print("[Facility] group of " .. LocalPlayer.Name .. ": " .. tostring(teamOf(LocalPlayer)))
+
+		for player, character in pairs(present) do
+			models = models + 1
+
+			local ent = Entity.Entities[player]
+			if ent then tracked = tracked + 1 end
+			if ent and ent.Targetable then targets = targets + 1 end
+
+			print(string.format(
+				"[Facility] %s model=%s group=%s entity=%s targetable=%s",
+				player.Name,
+				character.Name,
+				tostring(teamOf(player)),
+				ent and "yes" or "no",
+				ent and tostring(ent.Targetable) or "-"
+			))
+		end
+
+		local folder = charFolder()
+		print("[Facility] Characters folder: " .. (folder and "found" or "missing"))
+
+		Library:Notify("Facility", string.format(
+			"%d models, %d tracked, %d targetable. Details in the console.",
+			models, tracked, targets
+		), 8)
+	end,
 })
 
 Players.PlayerAdded:Connect(function()
