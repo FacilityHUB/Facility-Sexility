@@ -1,19 +1,53 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
 local Esp     = F.Esp
 
+local SESSION = (shared.FacilitySession or 0) + 1
+shared.FacilitySession = SESSION
+
+local function alive()
+	return shared.FacilitySession == SESSION
+end
+
+if shared.FacilityCleanup then
+	pcall(shared.FacilityCleanup)
+	shared.FacilityCleanup = nil
+end
+
 local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
 
-local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
+local moduleErrors = {}
 
 local function fetchModule(url, label)
-	local ok, result = pcall(function()
-		return loadstring(game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", "")))()
+	local fetched, source = pcall(function()
+		return game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", ""))
 	end)
 
-	if not ok or type(result) ~= "table" then
-		warn("Facility: could not load " .. label .. " from " .. url)
+	if not fetched or type(source) ~= "string" then
+		table.insert(moduleErrors, label .. ": download failed - " .. tostring(source))
+		return nil
+	end
+
+	local chunk, compileError = loadstring(source)
+
+	if not chunk then
+		table.insert(moduleErrors, label .. ": compile failed - " .. tostring(compileError))
+		return nil
+	end
+
+	local ok, result = pcall(chunk)
+
+	if not ok then
+		table.insert(moduleErrors, label .. ": runtime error - " .. tostring(result))
+		return nil
+	end
+
+	if type(result) ~= "table" then
+		table.insert(moduleErrors, label .. ": returned " .. typeof(result) .. " instead of a table")
 		return nil
 	end
 
@@ -21,12 +55,22 @@ local function fetchModule(url, label)
 end
 
 local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
-local Movement = fetchModule(MOVEMENT_URL, "movement")
-
-if Movement then Movement:Load() end
 
 F.Aimbot = Aimbot
-F.Movement = Movement
+
+shared.FacilityCleanup = function()
+	pcall(function() Esp:Unload() end)
+	if Aimbot then pcall(function() Aimbot:Unload() end) end
+	pcall(function() Library:Destroy() end)
+end
+
+for _, message in ipairs(moduleErrors) do
+	warn("[Facility] " .. message)
+end
+
+if Aimbot then
+	print("[Facility] aimbot version " .. tostring(Aimbot.Version or "unknown"))
+end
 
 local Players = game:GetService("Players")
 
@@ -49,9 +93,23 @@ local Window = Library:Window({
 })
 
 local Combat    = Window:Tab("Combat", "crosshair")
-local Movements = Window:Tab("Movement", "move")
 local Visuals   = Window:Tab("Visuals", "eye")
 local Settings  = Window:Tab("Settings", "cog")
+
+if #moduleErrors > 0 then
+	local failBox = Combat:Section("Modules", 1)
+
+	for _, message in ipairs(moduleErrors) do
+		failBox:Label(message, { Style = "dim" })
+	end
+
+	task.spawn(function()
+		task.wait(1)
+		for _, message in ipairs(moduleErrors) do
+			Library:Error("Facility", message, 20)
+		end
+	end)
+end
 
 local PLAYER_TEAMS = { "enemy", "friendly", "whitelist" }
 
@@ -74,24 +132,45 @@ Esp.teamSettings.friendly.nameColor = { Color3.fromRGB(80, 200, 120), 1 }
 
 Entity.Settings.TeamCheck = "Team"
 Esp.sharedSettings.teamCheck = "Team"
+Esp.sharedSettings.bodyPartsOnly = true
 
-local charFolderCache
-local charByPlayer = {}
+local BODY_PARTS = {
+	Head = true,
+	UpperTorso = true,
+	LowerTorso = true,
+	LeftUpperArm = true,
+	LeftLowerArm = true,
+	LeftHand = true,
+	RightUpperArm = true,
+	RightLowerArm = true,
+	RightHand = true,
+	LeftUpperLeg = true,
+	LeftLowerLeg = true,
+	LeftFoot = true,
+	RightUpperLeg = true,
+	RightLowerLeg = true,
+	RightFoot = true,
+}
 
-local function charFolder()
-	if charFolderCache and charFolderCache.Parent then return charFolderCache end
-	charFolderCache = workspace:FindFirstChild("Characters")
-	return charFolderCache
+Esp.getBoxParts = function(model)
+	local parts = {}
+
+	for _, child in ipairs(model:GetChildren()) do
+		if child:IsA("BasePart") and BODY_PARTS[child.Name] then
+			table.insert(parts, child)
+		end
+	end
+
+	if #parts == 0 then
+		local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+		if root then table.insert(parts, root) end
+	end
+
+	return parts
 end
 
-local function inCharacterFolder(model)
-	local folder = charFolder()
-	if not folder then return false end
-
-	local parent = model.Parent
-	if parent == folder then return true end
-
-	return parent ~= nil and parent.Parent == folder
+local function charFolder()
+	return workspace:FindFirstChild("Characters")
 end
 
 local function anchorOf(model)
@@ -99,73 +178,31 @@ local function anchorOf(model)
 end
 
 local function isCharacter(model)
-	if not model or model.Parent == nil then return false end
-	if not model:IsA("Model") then return false end
-	if not inCharacterFolder(model) then return false end
-
-	return anchorOf(model) ~= nil
+	return model ~= nil
+		and model.Parent ~= nil
+		and model:IsA("Model")
+		and anchorOf(model) ~= nil
 end
 
-local function playerOfModel(model)
-	local player = Players:GetPlayerFromCharacter(model)
-	if player then return player end
+local function isAlive(model)
+	if not isCharacter(model) then return false end
+	if model:GetAttribute("Dead") == true then return false end
 
-	player = Players:FindFirstChild(model.Name)
-	if player then return player end
+	local health = model:GetAttribute("Health")
+	if type(health) == "number" and health <= 0 then return false end
 
-	for _, other in ipairs(Players:GetPlayers()) do
-		if other.DisplayName == model.Name then return other end
-	end
-
-	return nil
-end
-
-local function collectModels(folder, into)
-	for _, child in ipairs(folder:GetChildren()) do
-		if child:IsA("Model") then
-			table.insert(into, child)
-		elseif child:IsA("Folder") then
-			for _, nested in ipairs(child:GetChildren()) do
-				if nested:IsA("Model") then table.insert(into, nested) end
-			end
-		end
-	end
-end
-
-local function scanFolder()
-	local found = {}
-
-	local folder = charFolder()
-	if not folder then
-		charByPlayer = found
-		return found
-	end
-
-	local models = {}
-	collectModels(folder, models)
-
-	for _, model in ipairs(models) do
-		if anchorOf(model) then
-			local player = playerOfModel(model)
-			if player and not found[player] then found[player] = model end
-		end
-	end
-
-	charByPlayer = found
-	return found
+	return true
 end
 
 local function characterOf(player)
-	local cached = charByPlayer[player]
-	if isCharacter(cached) then return cached end
-
 	local own = player.Character
-	if isCharacter(own) then
-		charByPlayer[player] = own
-		return own
-	end
+	if isCharacter(own) then return own end
 
-	return scanFolder()[player]
+	local folder = charFolder()
+	local model = folder and folder:FindFirstChild(player.Name)
+	if isCharacter(model) then return model end
+
+	return nil
 end
 
 local function cleanGroup(value)
@@ -190,16 +227,6 @@ local function groupOfModel(model)
 	return cleanGroup(root:GetAttribute("CollisionGroup"))
 end
 
-local VALID_TEAMS = {
-	["Counter-Terrorists"] = true,
-	["Terrorists"] = true,
-}
-
-local function isDeathmatch()
-	local ok, mode = pcall(function() return workspace:GetAttribute("Gamemode") end)
-	return ok and mode == "Deathmatch"
-end
-
 local function teamOf(player)
 	local attribute = cleanGroup(player:GetAttribute("Team"))
 	if attribute then return attribute end
@@ -207,17 +234,9 @@ local function teamOf(player)
 	return groupOfModel(characterOf(player))
 end
 
-local function allSameGroup(mine)
-	local seen = 0
-
-	for player in pairs(charByPlayer) do
-		if player ~= LocalPlayer then
-			seen = seen + 1
-			if teamOf(player) ~= mine then return false end
-		end
-	end
-
-	return seen > 0
+local function isDeathmatch()
+	local ok, mode = pcall(function() return workspace:GetAttribute("Gamemode") end)
+	return ok and mode == "Deathmatch"
 end
 
 local function healthOf(model)
@@ -239,10 +258,8 @@ function Entity:IsTargetable(player)
 
 	local mine, theirs = teamOf(LocalPlayer), teamOf(player)
 	if mine == nil or theirs == nil then return true end
-	if not (VALID_TEAMS[mine] and VALID_TEAMS[theirs]) then return true end
-	if mine ~= theirs then return true end
 
-	return allSameGroup(mine)
+	return mine ~= theirs
 end
 
 local buildCounter = 0
@@ -287,7 +304,7 @@ function Entity:_build(player, character, isLocal)
 			Humanoid    = nil,
 			Head        = head,
 			RootPart    = root,
-			Team        = groupOfModel(character),
+			Team        = teamOf(player),
 			Targetable  = self:IsTargetable(player),
 			Health      = health,
 			MaxHealth   = maxHealth,
@@ -300,8 +317,16 @@ function Entity:_build(player, character, isLocal)
 		end
 
 		local function syncHealth()
+			if self.Entities[player] ~= ent then return end
+
 			ent.Health, ent.MaxHealth = healthOf(character)
 			ent.Alive = ent.Health > 0
+
+			if not ent.Alive then
+				self:Remove(player)
+				return
+			end
+
 			self.Updated:Fire(ent)
 		end
 
@@ -309,20 +334,16 @@ function Entity:_build(player, character, isLocal)
 		watch(character:GetAttributeChangedSignal("MaxHealth"), syncHealth)
 		watch(character:GetAttributeChangedSignal("Dead"), syncHealth)
 
-		watch(root:GetPropertyChangedSignal("CollisionGroup"), function()
-			ent.Team = groupOfModel(character)
+		watch(player:GetAttributeChangedSignal("Team"), function()
+			if self.Entities[player] ~= ent then return end
+
+			ent.Team = teamOf(player)
 			local targetable = self:IsTargetable(player)
+
 			if ent.Targetable ~= targetable then
 				ent.Targetable = targetable
 				self.Updated:Fire(ent)
 			end
-		end)
-
-		watch(character.AncestryChanged, function()
-			if inCharacterFolder(character) then return end
-			task.defer(function()
-				if self.Entities[player] == ent then self:Remove(player) end
-			end)
 		end)
 
 		self.Entities[player] = ent
@@ -355,228 +376,45 @@ Esp.getWeapon = function(entity)
 	return nil
 end
 
-local function bindModel(model)
-	task.wait(0.15)
-	if not isCharacter(model) then return end
+local function syncEntities()
+	local mine = characterOf(LocalPlayer)
 
-	local player = playerOfModel(model)
-	if not player then return end
-
-	charByPlayer[player] = model
-	Entity:Refresh(player, player == LocalPlayer)
-end
-
-local function bindFolder(folder)
-	folder.ChildAdded:Connect(function(child)
-		if child:IsA("Model") then
-			task.spawn(bindModel, child)
-		elseif child:IsA("Folder") then
-			child.ChildAdded:Connect(function(nested)
-				if nested:IsA("Model") then task.spawn(bindModel, nested) end
-			end)
+	if isAlive(mine) then
+		if Entity.Self.Character ~= mine or not Entity.Self.Alive then
+			Entity:Refresh(LocalPlayer, true)
 		end
-	end)
+	else
+		Entity.Self.Alive = false
+	end
 
-	for _, child in ipairs(folder:GetChildren()) do
-		if child:IsA("Folder") then
-			child.ChildAdded:Connect(function(nested)
-				if nested:IsA("Model") then task.spawn(bindModel, nested) end
-			end)
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer then
+			local character = characterOf(player)
+			local ent = Entity.Entities[player]
+
+			if isAlive(character) then
+				if not ent or ent.Character ~= character then
+					Entity:Refresh(player, false)
+				end
+			elseif ent then
+				Entity:Remove(player)
+			end
 		end
 	end
+
+	Entity:RefreshTargets()
 end
 
 task.spawn(function()
-	local folder = workspace:WaitForChild("Characters", 30)
-	if not folder then
-		warn("Facility: workspace.Characters not found")
-		return
-	end
-
-	charFolderCache = folder
-	bindFolder(folder)
-
-	for player in pairs(scanFolder()) do
-		Entity:Refresh(player, player == LocalPlayer)
+	while task.wait(0.5) do
+		pcall(syncEntities)
 	end
 end)
 
-task.spawn(function()
-	while task.wait(1) do
-		pcall(function()
-			local present = scanFolder()
-
-			local mine = present[LocalPlayer]
-			if mine then
-				if Entity.Self.Character ~= mine or not Entity.Self.Alive then
-					Entity:Refresh(LocalPlayer, true)
-				end
-			else
-				Entity.Self.Alive = false
-			end
-
-			for player, character in pairs(present) do
-				if player ~= LocalPlayer then
-					local ent = Entity.Entities[player]
-					if not ent or ent.Character ~= character then
-						Entity:Refresh(player, false)
-					end
-				end
-			end
-
-			for player in pairs(Entity.Entities) do
-				if not present[player] then Entity:Remove(player) end
-			end
-
-			Entity:RefreshTargets()
-		end)
-	end
+Players.PlayerRemoving:Connect(function(player)
+	Entity.Ids[player] = nil
+	Entity:Remove(player)
 end)
-
-if Movement then
-
-Movement.Settings.WalkSpeedMode = "Velocity"
-Movement.Settings.JumpMode = "Humanoid"
-
-local flyBox = Movements:Section("Fly", 1)
-
-flyBox:Toggle({
-	Text = "Fly",
-	Flag = "move_fly",
-	Default = false,
-	Callback = function(state) Movement:Fly(state) end,
-})
-	:Keybind({ Default = "F", Flag = "move_fly_key" })
-
-flyBox:Slider({
-	Text = "Speed",
-	Flag = "move_fly_speed",
-	Min = 1, Max = 20, Default = 2,
-	Decimals = 1,
-	Callback = function(value) Movement.Settings.FlySpeed = value end,
-})
-
-flyBox:Toggle({
-	Text = "Vehicle Fly",
-	Flag = "move_vehicle_fly",
-	Default = false,
-	Callback = function(state) Movement:VehicleFly(state) end,
-})
-
-flyBox:Slider({
-	Text = "Vehicle Speed",
-	Flag = "move_vehicle_fly_speed",
-	Min = 1, Max = 20, Default = 2,
-	Decimals = 1,
-	Callback = function(value) Movement.Settings.VehicleFlySpeed = value end,
-})
-
-local speedBox = Movements:Section("Speed", 2)
-
-speedBox:Toggle({
-	Text = "Walk Speed",
-	Flag = "move_walkspeed",
-	Default = false,
-	Callback = function(state)
-		Movement:WalkSpeed(state and Movement.Settings.WalkSpeed or 16)
-	end,
-})
-
-speedBox:Slider({
-	Text = "Value",
-	Flag = "move_walkspeed_value",
-	Min = 16, Max = 300, Default = 16,
-	Callback = function(value)
-		Movement.Settings.WalkSpeed = value
-		if Library.Flags["move_walkspeed"] then Movement:WalkSpeed(value) end
-	end,
-})
-
-local jumpBox = Movements:Section("Jump", 2)
-
-jumpBox:Toggle({
-	Text = "Jump Power",
-	Flag = "move_jumppower",
-	Default = false,
-	Callback = function(state)
-		Movement:JumpPower(state and Movement.Settings.JumpPower or 50)
-	end,
-})
-
-jumpBox:Slider({
-	Text = "Value",
-	Flag = "move_jumppower_value",
-	Min = 50, Max = 500, Default = 50,
-	Callback = function(value)
-		Movement.Settings.JumpPower = value
-		if Library.Flags["move_jumppower"] then Movement:JumpPower(value) end
-	end,
-})
-
-jumpBox:Toggle({
-	Text = "Infinite Jump",
-	Flag = "move_infinite_jump",
-	Default = false,
-	Callback = function(state) Movement:InfiniteJump(state) end,
-})
-
-local otherBox = Movements:Section("Other", 1)
-
-otherBox:Toggle({
-	Text = "Noclip",
-	Flag = "move_noclip",
-	Default = false,
-	Callback = function(state) Movement:Noclip(state) end,
-})
-	:Keybind({ Default = "N", Flag = "move_noclip_key" })
-
-otherBox:Toggle({
-	Text = "Noclip Vehicle",
-	Flag = "move_noclip_vehicle",
-	Default = false,
-	Callback = function(state) Movement.Settings.NoclipVehicle = state end,
-})
-
-otherBox:Toggle({
-	Text = "Swim",
-	Flag = "move_swim",
-	Default = false,
-	Callback = function(state) Movement:Swim(state) end,
-})
-
-otherBox:Toggle({
-	Text = "Float",
-	Flag = "move_float",
-	Default = false,
-	Callback = function(state) Movement:Float(state) end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Height",
-			Flag = "move_float_height",
-			Min = 1, Max = 10, Default = 3.1,
-			Decimals = 1,
-			Callback = function(value) Movement.Settings.FloatHeight = value end,
-		})
-	end)
-
-otherBox:Toggle({
-	Text = "Spider",
-	Flag = "move_spider",
-	Default = false,
-	Callback = function(state) Movement:Spider(state) end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Climb Speed",
-			Flag = "move_spider_speed",
-			Min = 0.5, Max = 5, Default = 1,
-			Decimals = 1,
-			Callback = function(value) Movement.Settings.SpiderSpeed = value end,
-		})
-	end)
-
-end
 
 local espBox = Visuals:Section("Esp", 1)
 
@@ -871,36 +709,47 @@ checkBox:Button({
 checkBox:Button({
 	Text = "Debug Targets",
 	Callback = function()
-		local present = scanFolder()
-		local models, tracked, targets = 0, 0, 0
+		local folder = charFolder()
+		local tracked, targets = 0, 0
 
-		print("[Facility] group of " .. LocalPlayer.Name .. ": " .. tostring(teamOf(LocalPlayer)))
+		print("[Facility] Characters folder: " .. (folder and tostring(#folder:GetChildren()) .. " children" or "missing"))
+		print("[Facility] gamemode " .. tostring(workspace:GetAttribute("Gamemode"))
+			.. " | my team " .. tostring(teamOf(LocalPlayer)))
 
-		for player, character in pairs(present) do
-			models = models + 1
-
+		for _, player in ipairs(Players:GetPlayers()) do
+			local character = characterOf(player)
 			local ent = Entity.Entities[player]
+
 			if ent then tracked = tracked + 1 end
 			if ent and ent.Targetable then targets = targets + 1 end
 
 			print(string.format(
-				"[Facility] %s model=%s group=%s entity=%s targetable=%s hp=%s/%s",
+				"[Facility] %s parent=%s alive=%s team=%s entity=%s targetable=%s hp=%s",
 				player.Name,
-				character.Name,
-				tostring(groupOfModel(character)),
+				character and character.Parent and character.Parent.Name or "nil",
+				tostring(isAlive(character)),
+				tostring(teamOf(player)),
 				ent and "yes" or "no",
 				ent and tostring(ent.Targetable) or "-",
-				ent and tostring(ent.Health) or "-",
-				ent and tostring(ent.MaxHealth) or "-"
+				ent and tostring(ent.Health) or "-"
 			))
 		end
 
-		local folder = charFolder()
-		print("[Facility] Characters folder: " .. (folder and "found" or "missing"))
+		for player, ent in pairs(Entity.Entities) do
+			local stale = player.Parent == nil or ent.Character == nil or ent.Character.Parent == nil
+			if stale or player == LocalPlayer then
+				print(string.format(
+					"[Facility] STALE entity player=%s inGame=%s character=%s",
+					tostring(player),
+					tostring(player.Parent ~= nil),
+					ent.Character and ent.Character:GetFullName() or "nil"
+				))
+			end
+		end
 
 		Library:Notify("Facility", string.format(
-			"%d models, %d tracked, %d targetable. Details in the console.",
-			models, tracked, targets
+			"%d tracked, %d targetable. Details in the console.",
+			tracked, targets
 		), 8)
 	end,
 })
@@ -1057,13 +906,22 @@ local function hookCameraInput()
 	local module = cameraInputModule()
 	if not module then return false end
 
-	local original = module.getRotation
+	local original = shared.FacilityCameraInput
+
+	if original then
+		module.getRotation = original
+	else
+		original = module.getRotation
+		shared.FacilityCameraInput = original
+	end
 
 	aimInput.module = module
 	aimInput.original = original
 
 	module.getRotation = function(...)
 		local base = original(...)
+		if not alive() then return base end
+
 		local extra = aimInput.delta
 		aimInput.delta = nil
 
@@ -1460,11 +1318,95 @@ behaviourBox:Toggle({
 
 local triggerBox = Combat:Section("Trigger Bot", 1)
 
+local function triggerKeyEnum(name)
+	local mouse = {
+		MB1 = Enum.UserInputType.MouseButton1,
+		MB2 = Enum.UserInputType.MouseButton2,
+		MB3 = Enum.UserInputType.MouseButton3,
+	}
+
+	if mouse[name] then return mouse[name] end
+
+	local ok, code = pcall(function() return Enum.KeyCode[name] end)
+	if ok and code then return code end
+
+	return Enum.KeyCode.C
+end
+
+local function applyTriggerKey()
+	if not Library.Flags["trigger_use_key"] then
+		Aimbot.Settings.Trigger.Key = nil
+		return
+	end
+
+	Aimbot.Settings.Trigger.Key = triggerKeyEnum(Library.Flags["trigger_key"] or "C")
+end
+
 triggerBox:Toggle({
 	Text = "Enable",
 	Flag = "trigger_enable",
 	Default = false,
 	Callback = function(state) Aimbot.Settings.TriggerBot = state end,
+})
+	:Gear(function(panel)
+		panel:Toggle({
+			Text = "Require Aim",
+			Flag = "trigger_require_aim",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.RequireAim = state end,
+		})
+		panel:Toggle({
+			Text = "Hold Fire",
+			Flag = "trigger_hold_fire",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.HoldFire = state end,
+		})
+		panel:Slider({
+			Text = "Hit Chance",
+			Flag = "trigger_hit_chance",
+			Min = 0, Max = 100, Default = 100,
+			Suffix = "%",
+			Callback = function(value) Aimbot.Settings.Trigger.HitChance = value end,
+		})
+	end)
+
+triggerBox:Dropdown({
+	Text = "Mode",
+	Flag = "trigger_mode",
+	Options = { "Target", "Crosshair", "Fov" },
+	Default = "Target",
+	Callback = function(value) Aimbot.Settings.Trigger.Mode = value end,
+})
+
+triggerBox:Slider({
+	Text = "Fov",
+	Flag = "trigger_fov",
+	Min = 0, Max = 400, Default = 0,
+	Callback = function(value) Aimbot.Settings.Trigger.Fov = value end,
+})
+
+triggerBox:Toggle({
+	Text = "Use Key",
+	Flag = "trigger_use_key",
+	Default = false,
+	Callback = function() applyTriggerKey() end,
+})
+
+triggerBox:Keybind({
+	Text = "Trigger Key",
+	Flag = "trigger_key",
+	Default = "C",
+	Mode = "toggle",
+	OnChanged = function() applyTriggerKey() end,
+})
+
+triggerBox:Slider({
+	Text = "Reaction",
+	Flag = "trigger_reaction",
+	Min = 0, Max = 0.5, Default = 0,
+	Decimals = 2,
+	Suffix = " s",
+	Callback = function(value) Aimbot.Settings.Trigger.ReactionTime = value end,
 })
 
 triggerBox:Slider({
@@ -1483,6 +1425,51 @@ triggerBox:Slider({
 	Decimals = 2,
 	Suffix = " s",
 	Callback = function(value) Aimbot.Settings.TriggerCooldown = value end,
+})
+
+triggerBox:Divider()
+
+triggerBox:Toggle({
+	Text = "Wall Check",
+	Flag = "trigger_wall_check",
+	Default = true,
+	Callback = function(state) Aimbot.Settings.Trigger.WallCheck = state end,
+})
+	:Gear(function(panel)
+		panel:Toggle({
+			Text = "Multipoint",
+			Flag = "trigger_multipoint",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.Multipoint = state end,
+		})
+	end)
+
+triggerBox:Toggle({
+	Text = "Team Check",
+	Flag = "trigger_team_check",
+	Default = true,
+	Callback = function(state) Aimbot.Settings.Trigger.TeamCheck = state end,
+})
+
+triggerBox:Slider({
+	Text = "Max Distance",
+	Flag = "trigger_max_distance",
+	Min = 100, Max = 5000, Default = 2000,
+	Suffix = " studs",
+	Callback = function(value) Aimbot.Settings.Trigger.MaxDistance = value end,
+})
+
+triggerBox:Dropdown({
+	Text = "Target Part",
+	Flag = "trigger_parts",
+	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
+	Default = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
+	Multi = true,
+	Empty = "Head",
+	Callback = function(selected)
+		if #selected == 0 then selected = { "Head" } end
+		Aimbot.Settings.Trigger.Parts = selected
+	end,
 })
 
 end
