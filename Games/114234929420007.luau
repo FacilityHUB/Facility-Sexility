@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -1051,7 +1048,7 @@ aimBox:Dropdown({
 aimBox:Dropdown({
 	Text = "Target Part",
 	Flag = "aim_parts",
-	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart", "Torso" },
+	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
 	Default = { "Head" },
 	Multi = true,
 	Empty = "Head",
@@ -1208,17 +1205,10 @@ behaviourBox:Toggle({
 })
 
 behaviourBox:Toggle({
-	Text = "Ignore Downed",
-	Flag = "aim_ignore_downed",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.IgnoreDowned = state end,
-})
-
-behaviourBox:Toggle({
-	Text = "Ignore Forcefield",
-	Flag = "aim_ignore_forcefield",
-	Default = false,
-	Callback = function(state) Aimbot.Settings.IgnoreForcefield = state end,
+	Text = "Alive Check",
+	Flag = "aim_alive_check",
+	Default = true,
+	Callback = function(state) Aimbot.Settings.AliveCheck = state end,
 })
 
 behaviourBox:Slider({
