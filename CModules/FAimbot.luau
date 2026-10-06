@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -695,3 +698,154 @@ function Aimbot:Load(handler)
 
     self._connections[1] = UserInputService.InputBegan:Connect(function(input)
         if not self.Enabled then return end
+        if typingInBox() then return end
+
+        local key = self.Settings.Key
+        local matches = input.UserInputType == key
+            or (typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and input.KeyCode == key)
+
+        if not matches then return end
+
+        if self.Settings.ToggleMode then
+            self.Active = not self.Active
+        else
+            self.Active = true
+        end
+    end)
+
+    self._connections[2] = UserInputService.InputEnded:Connect(function(input)
+        if self.Settings.ToggleMode then return end
+
+        local key = self.Settings.Key
+        local matches = input.UserInputType == key
+            or (typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and input.KeyCode == key)
+
+        if matches then self.Active = false end
+    end)
+
+    self._connections[3] = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        Camera = workspace.CurrentCamera
+    end)
+
+    local randomAccum = 0
+
+    self._connections[4] = RunService.RenderStepped:Connect(function(dt)
+        local settings = self.Settings
+
+        if self.Enabled and not settings.ToggleMode then
+            self.Active = self:_keyDown()
+        end
+
+        if settings.RandomPart and #settings.Parts > 1 then
+            randomAccum = randomAccum + dt
+            if randomAccum >= settings.RandomInterval then
+                randomAccum = 0
+                self._currentPart = settings.Parts[math.random(1, #settings.Parts)]
+            end
+        else
+            self._currentPart = settings.Parts[1]
+        end
+
+        circle.Visible = self.Enabled and settings.FovVisible
+        circle.Radius = settings.Fov
+        circle.Thickness = settings.FovThickness
+        circle.Filled = settings.FovFilled
+        circle.Transparency = settings.FovTransparency
+        circle.Position = aimOrigin()
+
+        local line = self:_line()
+        local info = self:_info()
+
+        if not self.Enabled or not self.Active then
+            self.Target = nil
+            circle.Color = settings.FovColor
+            line.Visible = false
+            info.Visible = false
+            self:_resetSpring()
+            self:_triggerUpdate()
+            return
+        end
+
+        local record, part, point = self:_select()
+
+        if not record or not part then
+            self.Target = nil
+            circle.Color = settings.FovColor
+            line.Visible = false
+            info.Visible = false
+            self:_resetSpring()
+            self:_triggerUpdate()
+            return
+        end
+
+        if settings.SwitchDelay > 0 and self.Target and record.Player ~= self.Target then
+            local now = tick()
+            if now - (self._lastSwitch or 0) < settings.SwitchDelay then
+                circle.Color = settings.FovLockColor
+                self:_triggerUpdate()
+                return
+            end
+            self._lastSwitch = now
+        end
+
+        self.Target = record.Player
+        circle.Color = settings.FovLockColor
+
+        local aimPoint = point or part.Position
+        local screen, onScreen = Camera:WorldToViewportPoint(aimPoint)
+
+        if settings.TargetLine and onScreen then
+            line.Visible = true
+            line.From = settings.TargetLineOrigin == "Center"
+                and viewportCenter()
+                or cursorPoint()
+            line.To = Vector2.new(screen.X, screen.Y)
+            line.Color = settings.TargetLineColor
+            line.Thickness = settings.TargetLineThickness
+        else
+            line.Visible = false
+        end
+
+        if settings.TargetInfo and onScreen then
+            local distance = math.floor((Camera.CFrame.Position - part.Position).Magnitude)
+            local health = record.Health and math.floor(record.Health) or 0
+
+            info.Visible = true
+            info.Size = settings.TargetInfoSize
+            info.Color = settings.TargetInfoColor
+            info.Text = ("%s  |  %d studs  |  %d hp")
+                :format(record.Player.DisplayName, distance, health)
+            info.Position = Vector2.new(screen.X, screen.Y - 28)
+        else
+            info.Visible = false
+        end
+
+        self:_aim(self:_predict(part, aimPoint), dt)
+        self:_triggerUpdate()
+    end)
+
+    self._loaded = true
+    return self
+end
+
+function Aimbot:Unload()
+    if not self._loaded then return end
+
+    for _, connection in pairs(self._connections) do
+        pcall(function() connection:Disconnect() end)
+    end
+    table.clear(self._connections)
+
+    for _, key in ipairs({ "_fovCircle", "_lineDrawing", "_infoDrawing" }) do
+        if self[key] then
+            pcall(function() self[key]:Remove() end)
+            self[key] = nil
+        end
+    end
+
+    self.Active = false
+    self.Target = nil
+    self._loaded = false
+end
+
+return Aimbot
