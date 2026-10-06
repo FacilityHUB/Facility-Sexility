@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -67,6 +64,145 @@ Esp.teamSettings.friendly.boxColor = { Color3.fromRGB(80, 200, 120), 1 }
 Esp.teamSettings.friendly.nameColor = { Color3.fromRGB(80, 200, 120), 1 }
 
 Entity.Settings.TeamCheck = "Team"
+Esp.sharedSettings.teamCheck = "Team"
+
+local charFolderCache
+
+local function charFolder()
+	if charFolderCache and charFolderCache.Parent then return charFolderCache end
+	charFolderCache = workspace:FindFirstChild("Characters")
+	return charFolderCache
+end
+
+local function isCharacter(model)
+	return model
+		and model.Parent ~= nil
+		and model:IsA("Model")
+		and model:FindFirstChildWhichIsA("Humanoid") ~= nil
+end
+
+local function characterOf(player)
+	local own = player.Character
+	if isCharacter(own) then return own end
+
+	local folder = charFolder()
+	if not folder then return nil end
+
+	local model = folder:FindFirstChild(player.Name)
+	if isCharacter(model) then return model end
+
+	return nil
+end
+
+local function playerOfModel(model)
+	local player = Players:GetPlayerFromCharacter(model)
+	if player then return player end
+	return Players:FindFirstChild(model.Name)
+end
+
+local function teamOf(player)
+	local character = characterOf(player)
+	if not character then return nil end
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not root then return nil end
+
+	local attribute = root:GetAttribute("CollisionGroup")
+	if attribute ~= nil and attribute ~= "" then return tostring(attribute) end
+
+	local ok, group = pcall(function() return root.CollisionGroup end)
+	if ok and type(group) == "string" and group ~= "" then return group end
+
+	return nil
+end
+
+function Entity:IsTargetable(player)
+	if player == LocalPlayer then return false end
+	if self.Settings.TeamCheck == "Off" then return true end
+
+	local mine, theirs = teamOf(LocalPlayer), teamOf(player)
+	if mine == nil or theirs == nil then return true end
+
+	return mine ~= theirs
+end
+
+function Entity:Refresh(player, isLocal)
+	self:Remove(player)
+	self:_build(player, characterOf(player), isLocal)
+end
+
+local function bindFolder(folder)
+	folder.ChildAdded:Connect(function(model)
+		task.wait(0.15)
+		if not isCharacter(model) then return end
+
+		local player = playerOfModel(model)
+		if not player then return end
+
+		Entity:Refresh(player, player == LocalPlayer)
+	end)
+
+	folder.ChildRemoved:Connect(function(model)
+		local player = playerOfModel(model)
+		if not player then return end
+
+		if player == LocalPlayer then
+			Entity.Self.Alive = false
+			return
+		end
+
+		local ent = Entity.Entities[player]
+		if ent and ent.Character == model then Entity:Remove(player) end
+	end)
+end
+
+task.spawn(function()
+	local folder = workspace:WaitForChild("Characters", 30)
+	if not folder then
+		warn("Facility: workspace.Characters not found")
+		return
+	end
+
+	charFolderCache = folder
+	bindFolder(folder)
+
+	for _, model in ipairs(folder:GetChildren()) do
+		local player = isCharacter(model) and playerOfModel(model)
+		if player then Entity:Refresh(player, player == LocalPlayer) end
+	end
+end)
+
+task.spawn(function()
+	while task.wait(1) do
+		pcall(function()
+			local mine = characterOf(LocalPlayer)
+			if mine then
+				if Entity.Self.Character ~= mine or not Entity.Self.Alive then
+					Entity:Refresh(LocalPlayer, true)
+				end
+			else
+				Entity.Self.Alive = false
+			end
+
+			for _, other in ipairs(Players:GetPlayers()) do
+				if other ~= LocalPlayer then
+					local character = characterOf(other)
+					local ent = Entity.Entities[other]
+
+					if character then
+						if not ent or ent.Character ~= character then
+							Entity:Refresh(other, false)
+						end
+					elseif ent then
+						Entity:Remove(other)
+					end
+				end
+			end
+
+			Entity:RefreshTargets()
+		end)
+	end
+end)
 
 if Movement then
 
@@ -376,22 +512,13 @@ checkBox:Toggle({
 	Flag = "esp_team_check",
 	Default = true,
 	Callback = function(state)
-		Entity.Settings.TeamCheck = state and (Library.Flags["esp_team_mode"] == "Team Color" and "TeamColor" or "Team") or "Off"
+		local mode = state and "Team" or "Off"
+		Esp.sharedSettings.teamCheck = mode
+		Entity.Settings.TeamCheck = mode
 		Entity:RefreshTargets()
 	end,
 })
 	:Gear(function(panel)
-		panel:Dropdown({
-			Text = "Mode",
-			Flag = "esp_team_mode",
-			Options = { "Team", "Team Color" },
-			Default = "Team",
-			Callback = function(value)
-				if Library.Flags["esp_team_check"] == false then return end
-				Entity.Settings.TeamCheck = value == "Team Color" and "TeamColor" or "Team"
-				Entity:RefreshTargets()
-			end,
-		})
 		panel:Dropdown({
 			Text = "Allies",
 			Flag = "esp_allies_mode",
