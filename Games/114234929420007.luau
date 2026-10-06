@@ -1,7 +1,22 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
 local Esp     = F.Esp
+
+local SESSION = (shared.FacilitySession or 0) + 1
+shared.FacilitySession = SESSION
+
+local function alive()
+	return shared.FacilitySession == SESSION
+end
+
+if shared.FacilityCleanup then
+	pcall(shared.FacilityCleanup)
+	shared.FacilityCleanup = nil
+end
 
 local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
 
@@ -42,6 +57,12 @@ end
 local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
 
 F.Aimbot = Aimbot
+
+shared.FacilityCleanup = function()
+	pcall(function() Esp:Unload() end)
+	if Aimbot then pcall(function() Aimbot:Unload() end) end
+	pcall(function() Library:Destroy() end)
+end
 
 for _, message in ipairs(moduleErrors) do
 	warn("[Facility] " .. message)
@@ -394,6 +415,7 @@ end
 
 local function bindModel(model)
 	task.wait(0.15)
+	if not alive() then return end
 	if not isCharacter(model) then return end
 
 	local player = playerOfModel(model)
@@ -405,6 +427,7 @@ end
 
 local function bindFolder(folder)
 	folder.ChildAdded:Connect(function(child)
+		if not alive() then return end
 		if child:IsA("Model") then
 			task.spawn(bindModel, child)
 		elseif child:IsA("Folder") then
@@ -425,6 +448,7 @@ end
 
 task.spawn(function()
 	local folder = workspace:WaitForChild("Characters", 30)
+	if not alive() then return end
 	if not folder then
 		warn("Facility: workspace.Characters not found")
 		return
@@ -440,6 +464,7 @@ end)
 
 task.spawn(function()
 	while task.wait(1) do
+		if not alive() then break end
 		pcall(function()
 			local present = scanFolder()
 
@@ -949,13 +974,22 @@ local function hookCameraInput()
 	local module = cameraInputModule()
 	if not module then return false end
 
-	local original = module.getRotation
+	local original = shared.FacilityCameraInput
+
+	if original then
+		module.getRotation = original
+	else
+		original = module.getRotation
+		shared.FacilityCameraInput = original
+	end
 
 	aimInput.module = module
 	aimInput.original = original
 
 	module.getRotation = function(...)
 		local base = original(...)
+		if not alive() then return base end
+
 		local extra = aimInput.delta
 		aimInput.delta = nil
 
