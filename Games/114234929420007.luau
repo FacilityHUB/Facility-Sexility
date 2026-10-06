@@ -1,24 +1,20 @@
 --!nocheck
 --!nolint UnknownGlobal
---[[
-	Facility — 114234929420007
-	Pure PvP: ESP + Aimbot + Movement
-]]
 
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
 local Esp     = F.Esp
 
-local Aimbot   = F.Load("CModules/FAimbot.luau",   "aimbot")
-local Movement = F.Load("CModules/FMovement.luau",  "movement")
+local Aimbot   = F.Load("CModules/FAimbot.luau",  "aimbot")
+local Movement = F.Load("CModules/FMovement.luau", "movement")
+
+Aimbot.Settings.Key      = Enum.UserInputType.MouseButton2
+Aimbot.Settings.Priority = "Cursor"
+Aimbot.Settings.Parts    = { "Head" }
 
 Movement:Load()
 Aimbot:Load(Entity)
-
--- ================================================================
--- Window
--- ================================================================
 
 local Window = Library:Window({
 	Title             = "Facility",
@@ -32,10 +28,6 @@ local Visuals  = Window:Tab("Visuals",  "eye")
 local Combat   = Window:Tab("Combat",   "crosshair")
 local Move     = Window:Tab("Movement", "person")
 local Settings = Window:Tab("Settings", "cog")
-
--- ================================================================
--- VISUALS — ESP
--- ================================================================
 
 local espSection = Visuals:Section("ESP", 1)
 
@@ -85,7 +77,7 @@ espSection:Toggle({
 	})
 	panel:Toggle({
 		Text     = "Distance",
-		Flag     = "esp_enemy_distance",
+		Flag     = "esp_enemy_dist",
 		Default  = true,
 		Callback = function(state) Esp.teamSettings.enemy.distance = state end,
 	})
@@ -124,24 +116,16 @@ espSection:Toggle({
 	end,
 })
 
--- ================================================================
--- COMBAT — Aimbot
--- ================================================================
-
 local aimSection = Combat:Section("Aimbot", 1)
 
 aimSection:Toggle({
-	Text     = "Enable",
-	Flag     = "aim_enable",
-	Default  = false,
+	Text    = "Enable",
+	Flag    = "aim_enable",
+	Default = false,
 	Callback = function(state)
 		Aimbot.Enabled = state
 		if not state then Aimbot.Active = false end
 	end,
-}):Keybind({
-	Default  = "MouseButton2",
-	Flag     = "aim_key",
-	Callback = function(key) Aimbot:SetKey(key) end,
 })
 
 aimSection:Slider({
@@ -155,9 +139,7 @@ aimSection:Slider({
 	Text     = "Smoothness",
 	Flag     = "aim_smooth",
 	Min      = 1, Max = 100, Default = 25,
-	Callback = function(value)
-		Aimbot.Settings.Smoothness = value / 100
-	end,
+	Callback = function(value) Aimbot.Settings.Smoothness = value / 100 end,
 })
 
 aimSection:Toggle({
@@ -192,9 +174,7 @@ aimSection:Toggle({
 		Flag     = "aim_pred_time",
 		Min      = 1, Max = 50, Default = 12,
 		Suffix   = " ms",
-		Callback = function(value)
-			Aimbot.Settings.PredictionTime = value / 100
-		end,
+		Callback = function(value) Aimbot.Settings.PredictionTime = value / 100 end,
 	})
 	panel:Toggle({
 		Text     = "Ping Compensation",
@@ -204,22 +184,6 @@ aimSection:Toggle({
 	})
 end)
 
-aimSection:Dropdown({
-	Text    = "Priority",
-	Flag    = "aim_priority",
-	Default = "Cursor",
-	Options = { "Cursor", "Closest", "LowestHealth" },
-	Callback = function(value) Aimbot.Settings.Priority = value end,
-})
-
-aimSection:Dropdown({
-	Text    = "Target Part",
-	Flag    = "aim_part",
-	Default = "Head",
-	Options = { "Head", "HumanoidRootPart", "UpperTorso", "Torso" },
-	Callback = function(value) Aimbot.Settings.Parts = { value } end,
-})
-
 aimSection:Slider({
 	Text     = "Hit Chance",
 	Flag     = "aim_hitchance",
@@ -228,28 +192,27 @@ aimSection:Slider({
 	Callback = function(value) Aimbot.Settings.HitChance = value end,
 })
 
-local triggerSection = Combat:Section("Triggerbot", 2)
+aimSection:Toggle({
+	Text     = "Sticky",
+	Flag     = "aim_sticky",
+	Default  = true,
+	Callback = function(state) Aimbot.Settings.Sticky = state end,
+})
 
-triggerSection:Toggle({
-	Text     = "Enable",
+aimSection:Toggle({
+	Text     = "Triggerbot",
 	Flag     = "trigger_enable",
 	Default  = false,
 	Callback = function(state) Aimbot.Settings.TriggerBot = state end,
-})
-
-triggerSection:Slider({
-	Text     = "Delay",
-	Flag     = "trigger_delay",
-	Min      = 0, Max = 500, Default = 80,
-	Suffix   = " ms",
-	Callback = function(value)
-		Aimbot.Settings.TriggerDelay = value / 1000
-	end,
-})
-
--- ================================================================
--- MOVEMENT
--- ================================================================
+}):Gear(function(panel)
+	panel:Slider({
+		Text     = "Delay",
+		Flag     = "trigger_delay",
+		Min      = 0, Max = 500, Default = 80,
+		Suffix   = " ms",
+		Callback = function(value) Aimbot.Settings.TriggerDelay = value / 1000 end,
+	})
+end)
 
 local flySection = Move:Section("Fly", 1)
 
@@ -296,10 +259,6 @@ charSection:Slider({
 	Min      = 50, Max = 500, Default = 50,
 	Callback = function(value) Movement:JumpPower(value) end,
 })
-
--- ================================================================
--- SETTINGS
--- ================================================================
 
 local SaveManager      = Library.SaveManager
 local InterfaceManager = Library.InterfaceManager
