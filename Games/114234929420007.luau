@@ -1019,7 +1019,7 @@ aimBox:Toggle({
 			end
 
 			if Aimbot.Settings.Mode == "Mouse" and type(mousemoverel) ~= "function" then
-				Library:Error("Aimbot", "Your executor has no mousemoverel, switch Mode to Camera.", 8)
+				Library:Error("Aimbot", "Your executor has no mousemoverel, switch Mode to Render.", 8)
 			end
 		end
 		Aimbot.Enabled = state
@@ -1048,20 +1048,20 @@ aimBox:Toggle({
 	Callback = function(state) Aimbot.Settings.ToggleMode = state end,
 })
 
-Aimbot.Settings.Mode = "Mouse"
+Aimbot.Settings.Mode = "Render"
 
 aimBox:Dropdown({
 	Text = "Mode",
 	Flag = "aim_mode",
-	Options = { "Mouse", "Camera" },
-	Default = "Mouse",
+	Options = { "Render", "Mouse", "Camera" },
+	Default = "Render",
 	Callback = function(value)
 		Aimbot.Settings.Mode = value
 
-		if value == "Mouse" and type(mousemoverel) ~= "function" then
-			Library:Error("Aimbot", "Your executor has no mousemoverel, use Camera mode.", 8)
-		elseif value == "Camera" then
-			Library:Notify("Aimbot", "This game drives its own camera, Camera mode may be overridden.", 6)
+		if value == "Camera" then
+			Library:Notify("Aimbot", "This game overwrites the camera every frame, use Render.", 6)
+		elseif value == "Mouse" and type(mousemoverel) ~= "function" then
+			Library:Error("Aimbot", "Your executor has no mousemoverel, use Render mode.", 8)
 		end
 	end,
 })
