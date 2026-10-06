@@ -28,9 +28,18 @@ local Movement = fetchModule(MOVEMENT_URL, "movement")
 
 if Movement then Movement:Load() end
 
+F.Aimbot = Aimbot
+F.Movement = Movement
+
 local Players = game:GetService("Players")
 
 local LocalPlayer = Players.LocalPlayer
+
+local Camera = workspace.CurrentCamera
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	Camera = workspace.CurrentCamera
+end)
 
 local Window = Library:Window({
 	Title             = "Facility",
@@ -184,7 +193,20 @@ local function groupOfModel(model)
 	return cleanGroup(root:GetAttribute("CollisionGroup"))
 end
 
+local VALID_TEAMS = {
+	["Counter-Terrorists"] = true,
+	["Terrorists"] = true,
+}
+
+local function isDeathmatch()
+	local ok, mode = pcall(function() return workspace:GetAttribute("Gamemode") end)
+	return ok and mode == "Deathmatch"
+end
+
 local function teamOf(player)
+	local attribute = cleanGroup(player:GetAttribute("Team"))
+	if attribute then return attribute end
+
 	return groupOfModel(characterOf(player))
 end
 
@@ -216,9 +238,11 @@ end
 function Entity:IsTargetable(player)
 	if player == LocalPlayer then return false end
 	if self.Settings.TeamCheck == "Off" then return true end
+	if isDeathmatch() then return true end
 
 	local mine, theirs = teamOf(LocalPlayer), teamOf(player)
 	if mine == nil or theirs == nil then return true end
+	if not (VALID_TEAMS[mine] and VALID_TEAMS[theirs]) then return true end
 	if mine ~= theirs then return true end
 
 	return allSameGroup(mine)
@@ -1004,6 +1028,106 @@ miscBox:Split({
 
 if Aimbot then
 
+local aimInput = {
+	hooked = false,
+	module = nil,
+	original = nil,
+	delta = nil,
+	pending = nil,
+	sign = 1,
+	calibrated = false,
+}
+
+local function cameraInputModule()
+	local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
+	local playerModule = scripts and scripts:FindFirstChild("PlayerModule")
+	local cameraModule = playerModule and playerModule:FindFirstChild("CameraModule")
+	local input = cameraModule and cameraModule:FindFirstChild("CameraInput")
+
+	if not input or not input:IsA("ModuleScript") then return nil end
+
+	local ok, result = pcall(require, input)
+	if ok and type(result) == "table" and type(result.getRotation) == "function" then
+		return result
+	end
+
+	return nil
+end
+
+local function hookCameraInput()
+	if aimInput.hooked then return true end
+
+	local module = cameraInputModule()
+	if not module then return false end
+
+	local original = module.getRotation
+
+	aimInput.module = module
+	aimInput.original = original
+
+	module.getRotation = function(...)
+		local base = original(...)
+		local extra = aimInput.delta
+		aimInput.delta = nil
+
+		if extra and typeof(base) == "Vector2" then
+			return base + extra
+		end
+
+		return base
+	end
+
+	aimInput.hooked = true
+	return true
+end
+
+local function lookAngles(cframe)
+	local look = cframe.LookVector
+	return math.atan2(-look.X, -look.Z), math.asin(math.clamp(look.Y, -1, 1))
+end
+
+local function wrapAngle(angle)
+	while angle > math.pi do angle = angle - math.pi * 2 end
+	while angle < -math.pi do angle = angle + math.pi * 2 end
+	return angle
+end
+
+function Aimbot:_aim(position)
+	if not hookCameraInput() then return end
+
+	local cframe = Camera.CFrame
+	local yaw, pitch = lookAngles(cframe)
+
+	local pending = aimInput.pending
+	aimInput.pending = nil
+
+	if pending and not aimInput.calibrated then
+		local moved = wrapAngle(yaw - pending.yaw)
+		if math.abs(pending.want) > 0.004 and math.abs(moved) > 0.0008 then
+			if (moved > 0) ~= (pending.want > 0) then
+				aimInput.sign = -aimInput.sign
+			end
+			aimInput.calibrated = true
+		end
+	end
+
+	local direction = position - cframe.Position
+	if direction.Magnitude < 0.001 then return end
+
+	direction = direction.Unit
+
+	local wantYaw = math.atan2(-direction.X, -direction.Z)
+	local wantPitch = math.asin(math.clamp(direction.Y, -1, 1))
+
+	local eased = self:_eased(math.clamp(self.Settings.Smoothness, 0.01, 1))
+
+	local deltaYaw = wrapAngle(wantYaw - yaw) * eased
+	local deltaPitch = (wantPitch - pitch) * eased
+
+	aimInput.delta = Vector2.new(-deltaYaw * aimInput.sign, -deltaPitch * aimInput.sign)
+	aimInput.pending = { yaw = yaw, want = deltaYaw }
+end
+
 local aimBox = Combat:Section("Aimbot", 1)
 
 aimBox:Toggle({
@@ -1018,8 +1142,8 @@ aimBox:Toggle({
 				return
 			end
 
-			if Aimbot.Settings.Mode == "Mouse" and type(mousemoverel) ~= "function" then
-				Library:Error("Aimbot", "Your executor has no mousemoverel, switch Mode to Render.", 8)
+			if not cameraInputModule() then
+				Library:Error("Aimbot", "CameraInput module not found, aiming will not work in this game.", 10)
 			end
 		end
 		Aimbot.Enabled = state
@@ -1046,24 +1170,6 @@ aimBox:Toggle({
 	Flag = "aim_toggle_mode",
 	Default = false,
 	Callback = function(state) Aimbot.Settings.ToggleMode = state end,
-})
-
-Aimbot.Settings.Mode = "Render"
-
-aimBox:Dropdown({
-	Text = "Mode",
-	Flag = "aim_mode",
-	Options = { "Render", "Mouse", "Camera" },
-	Default = "Render",
-	Callback = function(value)
-		Aimbot.Settings.Mode = value
-
-		if value == "Camera" then
-			Library:Notify("Aimbot", "This game overwrites the camera every frame, use Render.", 6)
-		elseif value == "Mouse" and type(mousemoverel) ~= "function" then
-			Library:Error("Aimbot", "Your executor has no mousemoverel, use Render mode.", 8)
-		end
-	end,
 })
 
 aimBox:Dropdown({
