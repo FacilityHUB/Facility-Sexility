@@ -1,53 +1,19 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
 local Esp     = F.Esp
 
-local SESSION = (shared.FacilitySession or 0) + 1
-shared.FacilitySession = SESSION
-
-local function alive()
-	return shared.FacilitySession == SESSION
-end
-
-if shared.FacilityCleanup then
-	pcall(shared.FacilityCleanup)
-	shared.FacilityCleanup = nil
-end
-
 local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
 
-local moduleErrors = {}
+local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
 
 local function fetchModule(url, label)
-	local fetched, source = pcall(function()
-		return game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", ""))
+	local ok, result = pcall(function()
+		return loadstring(game:HttpGet(url .. "?v=" .. tostring(tick()):gsub("%.", "")))()
 	end)
 
-	if not fetched or type(source) ~= "string" then
-		table.insert(moduleErrors, label .. ": download failed - " .. tostring(source))
-		return nil
-	end
-
-	local chunk, compileError = loadstring(source)
-
-	if not chunk then
-		table.insert(moduleErrors, label .. ": compile failed - " .. tostring(compileError))
-		return nil
-	end
-
-	local ok, result = pcall(chunk)
-
-	if not ok then
-		table.insert(moduleErrors, label .. ": runtime error - " .. tostring(result))
-		return nil
-	end
-
-	if type(result) ~= "table" then
-		table.insert(moduleErrors, label .. ": returned " .. typeof(result) .. " instead of a table")
+	if not ok or type(result) ~= "table" then
+		warn("Facility: could not load " .. label .. " from " .. url)
 		return nil
 	end
 
@@ -55,22 +21,12 @@ local function fetchModule(url, label)
 end
 
 local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
+local Movement = fetchModule(MOVEMENT_URL, "movement")
+
+if Movement then Movement:Load() end
 
 F.Aimbot = Aimbot
-
-shared.FacilityCleanup = function()
-	pcall(function() Esp:Unload() end)
-	if Aimbot then pcall(function() Aimbot:Unload() end) end
-	pcall(function() Library:Destroy() end)
-end
-
-for _, message in ipairs(moduleErrors) do
-	warn("[Facility] " .. message)
-end
-
-if Aimbot then
-	print("[Facility] aimbot version " .. tostring(Aimbot.Version or "unknown"))
-end
+F.Movement = Movement
 
 local Players = game:GetService("Players")
 
@@ -93,23 +49,9 @@ local Window = Library:Window({
 })
 
 local Combat    = Window:Tab("Combat", "crosshair")
+local Movements = Window:Tab("Movement", "move")
 local Visuals   = Window:Tab("Visuals", "eye")
 local Settings  = Window:Tab("Settings", "cog")
-
-if #moduleErrors > 0 then
-	local failBox = Combat:Section("Modules", 1)
-
-	for _, message in ipairs(moduleErrors) do
-		failBox:Label(message, { Style = "dim" })
-	end
-
-	task.spawn(function()
-		task.wait(1)
-		for _, message in ipairs(moduleErrors) do
-			Library:Error("Facility", message, 20)
-		end
-	end)
-end
 
 local PLAYER_TEAMS = { "enemy", "friendly", "whitelist" }
 
@@ -415,7 +357,6 @@ end
 
 local function bindModel(model)
 	task.wait(0.15)
-	if not alive() then return end
 	if not isCharacter(model) then return end
 
 	local player = playerOfModel(model)
@@ -427,7 +368,6 @@ end
 
 local function bindFolder(folder)
 	folder.ChildAdded:Connect(function(child)
-		if not alive() then return end
 		if child:IsA("Model") then
 			task.spawn(bindModel, child)
 		elseif child:IsA("Folder") then
@@ -448,7 +388,6 @@ end
 
 task.spawn(function()
 	local folder = workspace:WaitForChild("Characters", 30)
-	if not alive() then return end
 	if not folder then
 		warn("Facility: workspace.Characters not found")
 		return
@@ -464,7 +403,6 @@ end)
 
 task.spawn(function()
 	while task.wait(1) do
-		if not alive() then break end
 		pcall(function()
 			local present = scanFolder()
 
@@ -494,6 +432,151 @@ task.spawn(function()
 		end)
 	end
 end)
+
+if Movement then
+
+Movement.Settings.WalkSpeedMode = "Velocity"
+Movement.Settings.JumpMode = "Humanoid"
+
+local flyBox = Movements:Section("Fly", 1)
+
+flyBox:Toggle({
+	Text = "Fly",
+	Flag = "move_fly",
+	Default = false,
+	Callback = function(state) Movement:Fly(state) end,
+})
+	:Keybind({ Default = "F", Flag = "move_fly_key" })
+
+flyBox:Slider({
+	Text = "Speed",
+	Flag = "move_fly_speed",
+	Min = 1, Max = 20, Default = 2,
+	Decimals = 1,
+	Callback = function(value) Movement.Settings.FlySpeed = value end,
+})
+
+flyBox:Toggle({
+	Text = "Vehicle Fly",
+	Flag = "move_vehicle_fly",
+	Default = false,
+	Callback = function(state) Movement:VehicleFly(state) end,
+})
+
+flyBox:Slider({
+	Text = "Vehicle Speed",
+	Flag = "move_vehicle_fly_speed",
+	Min = 1, Max = 20, Default = 2,
+	Decimals = 1,
+	Callback = function(value) Movement.Settings.VehicleFlySpeed = value end,
+})
+
+local speedBox = Movements:Section("Speed", 2)
+
+speedBox:Toggle({
+	Text = "Walk Speed",
+	Flag = "move_walkspeed",
+	Default = false,
+	Callback = function(state)
+		Movement:WalkSpeed(state and Movement.Settings.WalkSpeed or 16)
+	end,
+})
+
+speedBox:Slider({
+	Text = "Value",
+	Flag = "move_walkspeed_value",
+	Min = 16, Max = 300, Default = 16,
+	Callback = function(value)
+		Movement.Settings.WalkSpeed = value
+		if Library.Flags["move_walkspeed"] then Movement:WalkSpeed(value) end
+	end,
+})
+
+local jumpBox = Movements:Section("Jump", 2)
+
+jumpBox:Toggle({
+	Text = "Jump Power",
+	Flag = "move_jumppower",
+	Default = false,
+	Callback = function(state)
+		Movement:JumpPower(state and Movement.Settings.JumpPower or 50)
+	end,
+})
+
+jumpBox:Slider({
+	Text = "Value",
+	Flag = "move_jumppower_value",
+	Min = 50, Max = 500, Default = 50,
+	Callback = function(value)
+		Movement.Settings.JumpPower = value
+		if Library.Flags["move_jumppower"] then Movement:JumpPower(value) end
+	end,
+})
+
+jumpBox:Toggle({
+	Text = "Infinite Jump",
+	Flag = "move_infinite_jump",
+	Default = false,
+	Callback = function(state) Movement:InfiniteJump(state) end,
+})
+
+local otherBox = Movements:Section("Other", 1)
+
+otherBox:Toggle({
+	Text = "Noclip",
+	Flag = "move_noclip",
+	Default = false,
+	Callback = function(state) Movement:Noclip(state) end,
+})
+	:Keybind({ Default = "N", Flag = "move_noclip_key" })
+
+otherBox:Toggle({
+	Text = "Noclip Vehicle",
+	Flag = "move_noclip_vehicle",
+	Default = false,
+	Callback = function(state) Movement.Settings.NoclipVehicle = state end,
+})
+
+otherBox:Toggle({
+	Text = "Swim",
+	Flag = "move_swim",
+	Default = false,
+	Callback = function(state) Movement:Swim(state) end,
+})
+
+otherBox:Toggle({
+	Text = "Float",
+	Flag = "move_float",
+	Default = false,
+	Callback = function(state) Movement:Float(state) end,
+})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Height",
+			Flag = "move_float_height",
+			Min = 1, Max = 10, Default = 3.1,
+			Decimals = 1,
+			Callback = function(value) Movement.Settings.FloatHeight = value end,
+		})
+	end)
+
+otherBox:Toggle({
+	Text = "Spider",
+	Flag = "move_spider",
+	Default = false,
+	Callback = function(state) Movement:Spider(state) end,
+})
+	:Gear(function(panel)
+		panel:Slider({
+			Text = "Climb Speed",
+			Flag = "move_spider_speed",
+			Min = 0.5, Max = 5, Default = 1,
+			Decimals = 1,
+			Callback = function(value) Movement.Settings.SpiderSpeed = value end,
+		})
+	end)
+
+end
 
 local espBox = Visuals:Section("Esp", 1)
 
@@ -974,22 +1057,13 @@ local function hookCameraInput()
 	local module = cameraInputModule()
 	if not module then return false end
 
-	local original = shared.FacilityCameraInput
-
-	if original then
-		module.getRotation = original
-	else
-		original = module.getRotation
-		shared.FacilityCameraInput = original
-	end
+	local original = module.getRotation
 
 	aimInput.module = module
 	aimInput.original = original
 
 	module.getRotation = function(...)
 		local base = original(...)
-		if not alive() then return base end
-
 		local extra = aimInput.delta
 		aimInput.delta = nil
 
@@ -1386,95 +1460,11 @@ behaviourBox:Toggle({
 
 local triggerBox = Combat:Section("Trigger Bot", 1)
 
-local function triggerKeyEnum(name)
-	local mouse = {
-		MB1 = Enum.UserInputType.MouseButton1,
-		MB2 = Enum.UserInputType.MouseButton2,
-		MB3 = Enum.UserInputType.MouseButton3,
-	}
-
-	if mouse[name] then return mouse[name] end
-
-	local ok, code = pcall(function() return Enum.KeyCode[name] end)
-	if ok and code then return code end
-
-	return Enum.KeyCode.C
-end
-
-local function applyTriggerKey()
-	if not Library.Flags["trigger_use_key"] then
-		Aimbot.Settings.Trigger.Key = nil
-		return
-	end
-
-	Aimbot.Settings.Trigger.Key = triggerKeyEnum(Library.Flags["trigger_key"] or "C")
-end
-
 triggerBox:Toggle({
 	Text = "Enable",
 	Flag = "trigger_enable",
 	Default = false,
 	Callback = function(state) Aimbot.Settings.TriggerBot = state end,
-})
-	:Gear(function(panel)
-		panel:Toggle({
-			Text = "Require Aim",
-			Flag = "trigger_require_aim",
-			Default = false,
-			Callback = function(state) Aimbot.Settings.Trigger.RequireAim = state end,
-		})
-		panel:Toggle({
-			Text = "Hold Fire",
-			Flag = "trigger_hold_fire",
-			Default = false,
-			Callback = function(state) Aimbot.Settings.Trigger.HoldFire = state end,
-		})
-		panel:Slider({
-			Text = "Hit Chance",
-			Flag = "trigger_hit_chance",
-			Min = 0, Max = 100, Default = 100,
-			Suffix = "%",
-			Callback = function(value) Aimbot.Settings.Trigger.HitChance = value end,
-		})
-	end)
-
-triggerBox:Dropdown({
-	Text = "Mode",
-	Flag = "trigger_mode",
-	Options = { "Target", "Crosshair", "Fov" },
-	Default = "Target",
-	Callback = function(value) Aimbot.Settings.Trigger.Mode = value end,
-})
-
-triggerBox:Slider({
-	Text = "Fov",
-	Flag = "trigger_fov",
-	Min = 0, Max = 400, Default = 0,
-	Callback = function(value) Aimbot.Settings.Trigger.Fov = value end,
-})
-
-triggerBox:Toggle({
-	Text = "Use Key",
-	Flag = "trigger_use_key",
-	Default = false,
-	Callback = function() applyTriggerKey() end,
-})
-
-triggerBox:Keybind({
-	Text = "Trigger Key",
-	Flag = "trigger_key",
-	Default = "C",
-	Mode = "toggle",
-	OnChanged = function() applyTriggerKey() end,
-})
-
-triggerBox:Slider({
-	Text = "Reaction",
-	Flag = "trigger_reaction",
-	Min = 0, Max = 0.5, Default = 0,
-	Decimals = 2,
-	Suffix = " s",
-	Callback = function(value) Aimbot.Settings.Trigger.ReactionTime = value end,
 })
 
 triggerBox:Slider({
@@ -1493,51 +1483,6 @@ triggerBox:Slider({
 	Decimals = 2,
 	Suffix = " s",
 	Callback = function(value) Aimbot.Settings.TriggerCooldown = value end,
-})
-
-triggerBox:Divider()
-
-triggerBox:Toggle({
-	Text = "Wall Check",
-	Flag = "trigger_wall_check",
-	Default = true,
-	Callback = function(state) Aimbot.Settings.Trigger.WallCheck = state end,
-})
-	:Gear(function(panel)
-		panel:Toggle({
-			Text = "Multipoint",
-			Flag = "trigger_multipoint",
-			Default = false,
-			Callback = function(state) Aimbot.Settings.Trigger.Multipoint = state end,
-		})
-	end)
-
-triggerBox:Toggle({
-	Text = "Team Check",
-	Flag = "trigger_team_check",
-	Default = true,
-	Callback = function(state) Aimbot.Settings.Trigger.TeamCheck = state end,
-})
-
-triggerBox:Slider({
-	Text = "Max Distance",
-	Flag = "trigger_max_distance",
-	Min = 100, Max = 5000, Default = 2000,
-	Suffix = " studs",
-	Callback = function(value) Aimbot.Settings.Trigger.MaxDistance = value end,
-})
-
-triggerBox:Dropdown({
-	Text = "Target Part",
-	Flag = "trigger_parts",
-	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
-	Default = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
-	Multi = true,
-	Empty = "Head",
-	Callback = function(selected)
-		if #selected == 0 then selected = { "Head" } end
-		Aimbot.Settings.Trigger.Parts = selected
-	end,
 })
 
 end
