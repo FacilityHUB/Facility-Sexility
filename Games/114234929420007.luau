@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -70,6 +73,7 @@ if Aimbot then
 end
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -202,6 +206,14 @@ local function charFolder()
 	return workspace:FindFirstChild("Characters")
 end
 
+local function culledFolder()
+	return ReplicatedStorage:FindFirstChild("_PVS_CulledCharacters")
+end
+
+local function searchFolders()
+	return { charFolder(), culledFolder(), workspace:FindFirstChild("Debris") }
+end
+
 local function anchorOf(model)
 	return model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
 end
@@ -227,9 +239,12 @@ local function characterOf(player)
 	local own = player.Character
 	if isCharacter(own) then return own end
 
-	local folder = charFolder()
-	local model = folder and folder:FindFirstChild(player.Name)
-	if isCharacter(model) then return model end
+	for _, folder in ipairs(searchFolders()) do
+		if folder then
+			local model = folder:FindFirstChild(player.Name)
+			if isCharacter(model) then return model end
+		end
+	end
 
 	return nil
 end
@@ -741,7 +756,10 @@ checkBox:Button({
 		local folder = charFolder()
 		local tracked, targets = 0, 0
 
+		local culled = culledFolder()
+
 		print("[Facility] Characters folder: " .. (folder and tostring(#folder:GetChildren()) .. " children" or "missing"))
+		print("[Facility] _PVS_CulledCharacters: " .. (culled and tostring(#culled:GetChildren()) .. " children" or "missing"))
 		print("[Facility] gamemode " .. tostring(workspace:GetAttribute("Gamemode"))
 			.. " | my team " .. tostring(teamOf(LocalPlayer)))
 
@@ -752,15 +770,18 @@ checkBox:Button({
 			if ent then tracked = tracked + 1 end
 			if ent and ent.Targetable then targets = targets + 1 end
 
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+
 			print(string.format(
-				"[Facility] %s parent=%s alive=%s team=%s entity=%s targetable=%s hp=%s",
+				"[Facility] %s parent=%s alive=%s team=%s entity=%s targetable=%s hp=%s pos=%s",
 				player.Name,
 				character and character.Parent and character.Parent.Name or "nil",
 				tostring(isAlive(character)),
 				tostring(teamOf(player)),
 				ent and "yes" or "no",
 				ent and tostring(ent.Targetable) or "-",
-				ent and tostring(ent.Health) or "-"
+				ent and tostring(ent.Health) or "-",
+				root and string.format("%.0f,%.0f,%.0f", root.Position.X, root.Position.Y, root.Position.Z) or "-"
 			))
 		end
 
