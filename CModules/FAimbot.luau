@@ -16,6 +16,8 @@ local ENTITY_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexil
 local Entity
 
 local Aimbot = {
+    Version = "2026.10.06-trigger",
+
     Enabled = false,
     Active = false,
     Target = nil,
