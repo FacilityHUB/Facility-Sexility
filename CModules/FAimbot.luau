@@ -1,5 +1,4 @@
---!nocheck
---!nolint UnknownGlobal
+
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -405,6 +404,27 @@ function Aimbot:_resetSpring()
     self._springVelocity = nil
 end
 
+function Aimbot:_keyDown()
+    local key = self.Settings.Key
+    if typeof(key) ~= "EnumItem" then return false end
+
+    if key.EnumType == Enum.UserInputType then
+        local ok, down = pcall(function()
+            return UserInputService:IsMouseButtonPressed(key)
+        end)
+        return ok and down == true
+    end
+
+    if key.EnumType == Enum.KeyCode then
+        local ok, down = pcall(function()
+            return UserInputService:IsKeyDown(key)
+        end)
+        return ok and down == true
+    end
+
+    return false
+end
+
 local RENDER_BIND = "FacilityAimbotRender"
 
 function Aimbot:_bindRender()
@@ -524,8 +544,7 @@ function Aimbot:Load(handler)
 
     local circle = self:_fov()
 
-    self._connections[1] = UserInputService.InputBegan:Connect(function(input, processed)
-        if processed then return end
+    self._connections[1] = UserInputService.InputBegan:Connect(function(input)
         if not self.Enabled then return end
 
         local key = self.Settings.Key
@@ -559,6 +578,10 @@ function Aimbot:Load(handler)
 
     self._connections[4] = RunService.RenderStepped:Connect(function(dt)
         local settings = self.Settings
+
+        if self.Enabled and not settings.ToggleMode then
+            self.Active = self:_keyDown()
+        end
 
         if settings.RandomPart and #settings.Parts > 1 then
             randomAccum = randomAccum + dt
