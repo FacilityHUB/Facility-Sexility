@@ -1463,11 +1463,95 @@ behaviourBox:Toggle({
 
 local triggerBox = Combat:Section("Trigger Bot", 1)
 
+local function triggerKeyEnum(name)
+	local mouse = {
+		MB1 = Enum.UserInputType.MouseButton1,
+		MB2 = Enum.UserInputType.MouseButton2,
+		MB3 = Enum.UserInputType.MouseButton3,
+	}
+
+	if mouse[name] then return mouse[name] end
+
+	local ok, code = pcall(function() return Enum.KeyCode[name] end)
+	if ok and code then return code end
+
+	return Enum.KeyCode.C
+end
+
+local function applyTriggerKey()
+	if not Library.Flags["trigger_use_key"] then
+		Aimbot.Settings.Trigger.Key = nil
+		return
+	end
+
+	Aimbot.Settings.Trigger.Key = triggerKeyEnum(Library.Flags["trigger_key"] or "C")
+end
+
 triggerBox:Toggle({
 	Text = "Enable",
 	Flag = "trigger_enable",
 	Default = false,
 	Callback = function(state) Aimbot.Settings.TriggerBot = state end,
+})
+	:Gear(function(panel)
+		panel:Toggle({
+			Text = "Require Aim",
+			Flag = "trigger_require_aim",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.RequireAim = state end,
+		})
+		panel:Toggle({
+			Text = "Hold Fire",
+			Flag = "trigger_hold_fire",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.HoldFire = state end,
+		})
+		panel:Slider({
+			Text = "Hit Chance",
+			Flag = "trigger_hit_chance",
+			Min = 0, Max = 100, Default = 100,
+			Suffix = "%",
+			Callback = function(value) Aimbot.Settings.Trigger.HitChance = value end,
+		})
+	end)
+
+triggerBox:Dropdown({
+	Text = "Mode",
+	Flag = "trigger_mode",
+	Options = { "Target", "Crosshair", "Fov" },
+	Default = "Target",
+	Callback = function(value) Aimbot.Settings.Trigger.Mode = value end,
+})
+
+triggerBox:Slider({
+	Text = "Fov",
+	Flag = "trigger_fov",
+	Min = 0, Max = 400, Default = 0,
+	Callback = function(value) Aimbot.Settings.Trigger.Fov = value end,
+})
+
+triggerBox:Toggle({
+	Text = "Use Key",
+	Flag = "trigger_use_key",
+	Default = false,
+	Callback = function() applyTriggerKey() end,
+})
+
+triggerBox:Keybind({
+	Text = "Trigger Key",
+	Flag = "trigger_key",
+	Default = "C",
+	Mode = "toggle",
+	OnChanged = function() applyTriggerKey() end,
+})
+
+triggerBox:Slider({
+	Text = "Reaction",
+	Flag = "trigger_reaction",
+	Min = 0, Max = 0.5, Default = 0,
+	Decimals = 2,
+	Suffix = " s",
+	Callback = function(value) Aimbot.Settings.Trigger.ReactionTime = value end,
 })
 
 triggerBox:Slider({
@@ -1486,6 +1570,51 @@ triggerBox:Slider({
 	Decimals = 2,
 	Suffix = " s",
 	Callback = function(value) Aimbot.Settings.TriggerCooldown = value end,
+})
+
+triggerBox:Divider()
+
+triggerBox:Toggle({
+	Text = "Wall Check",
+	Flag = "trigger_wall_check",
+	Default = true,
+	Callback = function(state) Aimbot.Settings.Trigger.WallCheck = state end,
+})
+	:Gear(function(panel)
+		panel:Toggle({
+			Text = "Multipoint",
+			Flag = "trigger_multipoint",
+			Default = false,
+			Callback = function(state) Aimbot.Settings.Trigger.Multipoint = state end,
+		})
+	end)
+
+triggerBox:Toggle({
+	Text = "Team Check",
+	Flag = "trigger_team_check",
+	Default = true,
+	Callback = function(state) Aimbot.Settings.Trigger.TeamCheck = state end,
+})
+
+triggerBox:Slider({
+	Text = "Max Distance",
+	Flag = "trigger_max_distance",
+	Min = 100, Max = 5000, Default = 2000,
+	Suffix = " studs",
+	Callback = function(value) Aimbot.Settings.Trigger.MaxDistance = value end,
+})
+
+triggerBox:Dropdown({
+	Text = "Target Part",
+	Flag = "trigger_parts",
+	Options = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
+	Default = { "Head", "UpperTorso", "LowerTorso", "HumanoidRootPart" },
+	Multi = true,
+	Empty = "Head",
+	Callback = function(selected)
+		if #selected == 0 then selected = { "Head" } end
+		Aimbot.Settings.Trigger.Parts = selected
+	end,
 })
 
 end
