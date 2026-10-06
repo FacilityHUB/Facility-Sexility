@@ -1,14 +1,9 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
 local Esp     = F.Esp
 
 local AIMBOT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FAimbot.luau"
-
-local MOVEMENT_URL = "https://raw.githubusercontent.com/FacilityHUB/Facility-Sexility/refs/heads/main/CModules/FMovement.luau"
 
 local moduleErrors = {}
 
@@ -45,15 +40,15 @@ local function fetchModule(url, label)
 end
 
 local Aimbot = fetchModule(AIMBOT_URL, "aimbot")
-local Movement = fetchModule(MOVEMENT_URL, "movement")
-
-if Movement then Movement:Load() end
 
 F.Aimbot = Aimbot
-F.Movement = Movement
 
 for _, message in ipairs(moduleErrors) do
 	warn("[Facility] " .. message)
+end
+
+if Aimbot then
+	print("[Facility] aimbot version " .. tostring(Aimbot.Version or "unknown"))
 end
 
 local Players = game:GetService("Players")
@@ -77,7 +72,6 @@ local Window = Library:Window({
 })
 
 local Combat    = Window:Tab("Combat", "crosshair")
-local Movements = Window:Tab("Movement", "move")
 local Visuals   = Window:Tab("Visuals", "eye")
 local Settings  = Window:Tab("Settings", "cog")
 
@@ -475,151 +469,6 @@ task.spawn(function()
 		end)
 	end
 end)
-
-if Movement then
-
-Movement.Settings.WalkSpeedMode = "Velocity"
-Movement.Settings.JumpMode = "Humanoid"
-
-local flyBox = Movements:Section("Fly", 1)
-
-flyBox:Toggle({
-	Text = "Fly",
-	Flag = "move_fly",
-	Default = false,
-	Callback = function(state) Movement:Fly(state) end,
-})
-	:Keybind({ Default = "F", Flag = "move_fly_key" })
-
-flyBox:Slider({
-	Text = "Speed",
-	Flag = "move_fly_speed",
-	Min = 1, Max = 20, Default = 2,
-	Decimals = 1,
-	Callback = function(value) Movement.Settings.FlySpeed = value end,
-})
-
-flyBox:Toggle({
-	Text = "Vehicle Fly",
-	Flag = "move_vehicle_fly",
-	Default = false,
-	Callback = function(state) Movement:VehicleFly(state) end,
-})
-
-flyBox:Slider({
-	Text = "Vehicle Speed",
-	Flag = "move_vehicle_fly_speed",
-	Min = 1, Max = 20, Default = 2,
-	Decimals = 1,
-	Callback = function(value) Movement.Settings.VehicleFlySpeed = value end,
-})
-
-local speedBox = Movements:Section("Speed", 2)
-
-speedBox:Toggle({
-	Text = "Walk Speed",
-	Flag = "move_walkspeed",
-	Default = false,
-	Callback = function(state)
-		Movement:WalkSpeed(state and Movement.Settings.WalkSpeed or 16)
-	end,
-})
-
-speedBox:Slider({
-	Text = "Value",
-	Flag = "move_walkspeed_value",
-	Min = 16, Max = 300, Default = 16,
-	Callback = function(value)
-		Movement.Settings.WalkSpeed = value
-		if Library.Flags["move_walkspeed"] then Movement:WalkSpeed(value) end
-	end,
-})
-
-local jumpBox = Movements:Section("Jump", 2)
-
-jumpBox:Toggle({
-	Text = "Jump Power",
-	Flag = "move_jumppower",
-	Default = false,
-	Callback = function(state)
-		Movement:JumpPower(state and Movement.Settings.JumpPower or 50)
-	end,
-})
-
-jumpBox:Slider({
-	Text = "Value",
-	Flag = "move_jumppower_value",
-	Min = 50, Max = 500, Default = 50,
-	Callback = function(value)
-		Movement.Settings.JumpPower = value
-		if Library.Flags["move_jumppower"] then Movement:JumpPower(value) end
-	end,
-})
-
-jumpBox:Toggle({
-	Text = "Infinite Jump",
-	Flag = "move_infinite_jump",
-	Default = false,
-	Callback = function(state) Movement:InfiniteJump(state) end,
-})
-
-local otherBox = Movements:Section("Other", 1)
-
-otherBox:Toggle({
-	Text = "Noclip",
-	Flag = "move_noclip",
-	Default = false,
-	Callback = function(state) Movement:Noclip(state) end,
-})
-	:Keybind({ Default = "N", Flag = "move_noclip_key" })
-
-otherBox:Toggle({
-	Text = "Noclip Vehicle",
-	Flag = "move_noclip_vehicle",
-	Default = false,
-	Callback = function(state) Movement.Settings.NoclipVehicle = state end,
-})
-
-otherBox:Toggle({
-	Text = "Swim",
-	Flag = "move_swim",
-	Default = false,
-	Callback = function(state) Movement:Swim(state) end,
-})
-
-otherBox:Toggle({
-	Text = "Float",
-	Flag = "move_float",
-	Default = false,
-	Callback = function(state) Movement:Float(state) end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Height",
-			Flag = "move_float_height",
-			Min = 1, Max = 10, Default = 3.1,
-			Decimals = 1,
-			Callback = function(value) Movement.Settings.FloatHeight = value end,
-		})
-	end)
-
-otherBox:Toggle({
-	Text = "Spider",
-	Flag = "move_spider",
-	Default = false,
-	Callback = function(state) Movement:Spider(state) end,
-})
-	:Gear(function(panel)
-		panel:Slider({
-			Text = "Climb Speed",
-			Flag = "move_spider_speed",
-			Min = 0.5, Max = 5, Default = 1,
-			Decimals = 1,
-			Callback = function(value) Movement.Settings.SpiderSpeed = value end,
-		})
-	end)
-
-end
 
 local espBox = Visuals:Section("Esp", 1)
 
