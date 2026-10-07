@@ -29,6 +29,7 @@ F.Movement = Movement
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 local TeleportService = game:GetService("TeleportService")
@@ -532,6 +533,111 @@ local Collect = {
 	Cooldowns = {},
 }
 
+local MUTATION_MULTIPLIER = {
+	Shocked = 2,
+	Volted = 3,
+	Rage = 4,
+	Void = 10,
+	Magma = 10,
+	Eternal = 100,
+}
+
+local MUTATION_WEIGHT = {
+	Eternal = 100000,
+	Magma = 75000,
+	Void = 50000,
+	Rage = 20000,
+	Volted = 10000,
+	Shocked = 5000,
+}
+
+local STORM_TO_MUTATION = {
+	Thunder = "Shocked",
+	Volt = "Volted",
+	Raging = "Rage",
+	Dreadful = "Void",
+	Eternal = "Eternal",
+}
+
+local MUTATION_TIERS = {
+	"Any Mutation",
+	"Volted and above",
+	"Rage and above",
+	"Void and above",
+	"Eternal only",
+}
+
+local MUTATION_TIER_VALUE = {
+	["Any Mutation"] = 2,
+	["Volted and above"] = 3,
+	["Rage and above"] = 4,
+	["Void and above"] = 10,
+	["Eternal only"] = 100,
+}
+
+local Mutations = {
+	Prioritize = true,
+	WaitForStorm = false,
+	MinTier = "Any Mutation",
+	Notify = true,
+}
+
+local function activeStorm()
+	local serverData = ReplicatedStorage:FindFirstChild("ServerData")
+	if not serverData then return nil end
+
+	local raw = serverData:GetAttribute("ActiveWeathers")
+	if not raw or raw == "" or raw == "[]" then return nil end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(raw)
+	end)
+
+	if not ok or type(decoded) ~= "table" then return nil end
+
+	local now = workspace:GetServerTimeNow()
+
+	for _, entry in ipairs(decoded) do
+		if entry.Type == "Storm" and entry.Variant
+			and (not entry.EndsAt or entry.EndsAt > now) then
+			return entry
+		end
+	end
+
+	return nil
+end
+
+local function mutationPasses(mutation)
+	if not mutation or mutation == "" then return false end
+
+	local value = MUTATION_MULTIPLIER[mutation] or 1
+	local required = MUTATION_TIER_VALUE[Mutations.MinTier] or 2
+
+	return value >= required
+end
+
+local function mutationOf(entry)
+	local mutation = entry:GetAttribute("Mutation")
+	if mutation and mutation ~= "" then return mutation end
+
+	if entry:FindFirstChild("MutationHitbox") then
+		local storm = activeStorm()
+
+		if storm and storm.Variant and STORM_TO_MUTATION[storm.Variant] then
+			return STORM_TO_MUTATION[storm.Variant]
+		end
+
+		return "Shocked"
+	end
+
+	return nil
+end
+
+local Weight = {
+	PreferHeaviest = false,
+	Minimum = 0,
+}
+
 local PRIORITIES = { "Highest Luck", "Highest Rarity", "Nearest", "Farthest" }
 
 local SAFETY_MARGIN = 3
@@ -594,13 +700,27 @@ local function candidates(origin)
 			if rank >= Collect.MinRank and (not filtered or Collect.Targets[eggName]) then
 				local travel = top and Game.TravelTime(position, top) or 0
 
-				if travel < 20 - SAFETY_MARGIN - 2 then
+				local weight = tonumber(child:GetAttribute("Weight")) or 1
+				local mutation = mutationOf(child)
+				local mutated = mutation ~= nil and mutationPasses(mutation)
+
+				local keep = travel < 20 - SAFETY_MARGIN - 2
+					and weight >= Weight.Minimum
+
+				if keep and Mutations.WaitForStorm and not mutated then
+					keep = activeStorm() == nil
+				end
+
+				if keep then
 					table.insert(list, {
 						Config = child,
 						Name = eggName,
 						Position = position,
 						Rank = rank,
-						Luck = Game.EggLuck(eggName) * (tonumber(child:GetAttribute("Weight")) or 1),
+						Weight = weight,
+						Mutation = mutated and mutation or nil,
+						MutationWeight = mutated and (MUTATION_WEIGHT[mutation] or 1000) or 0,
+						Luck = Game.EggLuck(eggName) * weight,
 						Distance = (position - origin).Magnitude,
 					})
 				end
@@ -611,6 +731,14 @@ local function candidates(origin)
 	local mode = Collect.Priority
 
 	table.sort(list, function(a, b)
+		if Mutations.Prioritize and a.MutationWeight ~= b.MutationWeight then
+			return a.MutationWeight > b.MutationWeight
+		end
+
+		if Weight.PreferHeaviest and a.Weight ~= b.Weight then
+			return a.Weight > b.Weight
+		end
+
 		if mode == "Nearest" then return a.Distance < b.Distance end
 		if mode == "Farthest" then return a.Distance > b.Distance end
 
@@ -1052,6 +1180,10 @@ end
 local Pets = {
 	Foods = {},
 	FeedCooldowns = {},
+	SkipMaxAge = true,
+	MaxAge = 100,
+	AllowPremium = true,
+	PremiumFoods = { Dragonfruit = true, Apple = true },
 }
 
 local function plotPets()
@@ -1198,7 +1330,9 @@ local function cheapestFood()
 		local amount = tool:FindFirstChild("Amount", true)
 		local count = amount and tonumber(amount.Value) or 1
 
-		if count > 0 and (not filtered or Pets.Foods[tool.Name]) then
+		local premiumBlocked = not Pets.AllowPremium and Pets.PremiumFoods[tool.Name] == true
+
+		if count > 0 and not premiumBlocked and (not filtered or Pets.Foods[tool.Name]) then
 			local entry = type(Data.Foods) == "table" and Data.Foods[tool.Name] or nil
 			local cost = type(entry) == "table" and tonumber(entry.Cost) or 0
 
@@ -1218,7 +1352,10 @@ function Farm.FeedWanted()
 
 	for _, instance in ipairs(plotPets()) do
 		local key = instance:GetAttribute("PetKey")
-		if key and (Pets.FeedCooldowns[key] or 0) <= now then return true end
+		local age = tonumber(instance:GetAttribute("Age")) or 0
+		local tooOld = Pets.SkipMaxAge and age >= Pets.MaxAge
+
+		if key and not tooOld and (Pets.FeedCooldowns[key] or 0) <= now then return true end
 	end
 
 	return false
@@ -1240,8 +1377,10 @@ function Farm.FeedStep(abort)
 		if not food then break end
 
 		local key = instance:GetAttribute("PetKey")
+		local age = tonumber(instance:GetAttribute("Age")) or 0
+		local tooOld = Pets.SkipMaxAge and age >= Pets.MaxAge
 
-		if key and (Pets.FeedCooldowns[key] or 0) <= os.clock() then
+		if key and not tooOld and (Pets.FeedCooldowns[key] or 0) <= os.clock() then
 			local ok, pivot = pcall(function() return instance:GetPivot().Position end)
 
 			if ok then
@@ -1270,6 +1409,175 @@ function Farm.FeedStep(abort)
 	Game.Unequip()
 
 	return fed > 0
+end
+
+local VOLCANO_TOP = Vector3.new(-5102.8, 41408, -3489.1)
+local VOLCANO_PLATFORM = CFrame.new(-4917.03369, 41285.5312, -3704.17505)
+local FUSION_SPOT = Vector3.new(387.9, 40328.8, 751.3)
+
+local Magma = {
+	Enabled = false,
+	Dipping = false,
+	Duration = 9.5,
+}
+
+local function volcanoPlatform()
+	local part = workspace:FindFirstChild("FacilityVolcanoPlatform")
+	local target = CFrame.new(VOLCANO_PLATFORM.Position - Vector3.new(0, 3.2, 0))
+
+	if not part then
+		part = Instance.new("Part")
+		part.Name = "FacilityVolcanoPlatform"
+		part.Size = Vector3.new(14, 1, 14)
+		part.Anchored = true
+		part.CanCollide = true
+		part.Material = Enum.Material.SmoothPlastic
+		part.Transparency = 0.5
+		part.CFrame = target
+		part.Parent = workspace
+	else
+		part.CFrame = target
+	end
+
+	return part
+end
+
+onCleanup(function()
+	local part = workspace:FindFirstChild("FacilityVolcanoPlatform")
+	if part then pcall(function() part:Destroy() end) end
+end)
+
+local function volcanoRemote()
+	local packages = ReplicatedStorage:FindFirstChild("packages")
+	local net = packages and packages:FindFirstChild("Net")
+	return net and net:FindFirstChild("RE/VolcanoDip")
+end
+
+local function dippableEgg()
+	local basket = LocalPlayer:FindFirstChild("Basket")
+	if not basket then return nil end
+
+	for _, child in ipairs(basket:GetChildren()) do
+		if child:GetAttribute("VolcanoDipped") ~= true
+			and child:GetAttribute("Delivering") ~= true then
+			local mutation = child:GetAttribute("Mutation")
+
+			if mutation ~= "Eternal" and mutation ~= "Magma" then
+				return child
+			end
+		end
+	end
+
+	return nil
+end
+
+local function magmaDip(abort)
+	if not Magma.Enabled or Magma.Dipping then return false end
+
+	local egg = dippableEgg()
+	if not egg then return false end
+
+	local root = Game.Root()
+	if not root then return false end
+
+	Magma.Dipping = true
+
+	volcanoPlatform()
+
+	Game.Status = "Warping to the volcano"
+
+	local function anchorAtTop()
+		pcall(function()
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.CFrame = CFrame.new(VOLCANO_TOP)
+		end)
+	end
+
+	anchorAtTop()
+	task.wait(0.2)
+
+	if (root.Position - VOLCANO_TOP).Magnitude > 25 then
+		anchorAtTop()
+		task.wait(0.1)
+	end
+
+	Game.Status = "Triggering the lava dip"
+
+	local remote = volcanoRemote()
+	local deadline = os.clock() + 3.5
+
+	while os.clock() < deadline do
+		if not egg.Parent or abort() then break end
+
+		local until_ = egg:GetAttribute("VolcanoUntil")
+
+		if (type(until_) == "number" and until_ > workspace:GetServerTimeNow())
+			or egg:GetAttribute("VolcanoDipped") == true then
+			break
+		end
+
+		if remote then
+			pcall(function() remote:FireServer() end)
+		end
+
+		pcall(function()
+			local gui = LocalPlayer:FindFirstChild("PlayerGui")
+			local main = gui and gui:FindFirstChild("Main")
+			local holder = main and main:FindFirstChild("ActionsHolder")
+			local button = holder and holder:FindFirstChild("DropEggVolcanoButton")
+
+			if button and firesignal then firesignal(button.Activated) end
+		end)
+
+		task.wait(0.3)
+	end
+
+	local started = os.clock()
+
+	while os.clock() - started < Magma.Duration do
+		if not egg.Parent or abort() then break end
+
+		local current = Game.Root()
+
+		if current and (current.Position - VOLCANO_TOP).Magnitude > 30 then
+			pcall(function()
+				current.AssemblyLinearVelocity = Vector3.zero
+				current.AssemblyAngularVelocity = Vector3.zero
+				current.CFrame = CFrame.new(VOLCANO_TOP)
+			end)
+		end
+
+		local until_ = egg:GetAttribute("VolcanoUntil")
+
+		if type(until_) == "number" and workspace:GetServerTimeNow() >= until_ then
+			break
+		end
+
+		Game.Status = string.format("Dipping in lava  %ds",
+			math.max(0, math.ceil(Magma.Duration - (os.clock() - started))))
+
+		task.wait(0.2)
+	end
+
+	pcall(function() egg:SetAttribute("VolcanoDipped", true) end)
+
+	if egg.Parent and egg:GetAttribute("Mutation") == "Magma" then
+		Game.Status = "Magma mutation landed"
+
+		Library:Notify({
+			Title = "Magma",
+			Text = string.format("%s mutated to Magma, 10x.", egg.Name),
+			Style = "success",
+			Duration = 5,
+		})
+	else
+		Game.Status = "Dip done, no Magma"
+	end
+
+	Magma.Dipping = false
+
+	return true
 end
 
 local farmRunning = true
@@ -1317,6 +1625,10 @@ task.spawn(function()
 
 			local ok = pcall(function()
 				if Game.BasketCount() > 0 then
+					if Magma.Enabled and not shouldStop() then
+						if magmaDip(shouldStop) then progressed = true end
+					end
+
 					Farm.Deliver(shouldStop)
 					progressed = true
 				end
@@ -1574,7 +1886,6 @@ end)
 
 onCleanup(function() progressRunning = false end)
 
-local HttpService = game:GetService("HttpService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local promptHolds = {}
@@ -2061,6 +2372,355 @@ onCleanup(function()
 	end
 end)
 
+local Plot = {
+	UpgradeLuck = false,
+	UnlockNests = false,
+	SpawnNest = false,
+}
+
+local function plotRemote(name)
+	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+	local gameFolder = remotes and remotes:FindFirstChild("Game")
+	local plot = gameFolder and gameFolder:FindFirstChild("Plot")
+	return plot and plot:FindFirstChild(name)
+end
+
+local plotRunning = true
+
+task.spawn(function()
+	while plotRunning do
+		task.wait(1)
+
+		if Plot.UpgradeLuck then
+			pcall(function()
+				local upgrades = plotRemote("Upgrades")
+
+				if upgrades then
+					upgrades:FireServer("HatchUpgrade", "BuyMax")
+					upgrades:FireServer("HatchUpgrade", "BuyOne")
+				end
+			end)
+		end
+
+		if Plot.UnlockNests and LocalPlayer:GetAttribute("NoNest") ~= true then
+			pcall(function()
+				local plot = Game.Plot()
+				local nests = plot and plot:FindFirstChild("Nests")
+				if not nests then return end
+
+				for _, nest in ipairs(nests:GetChildren()) do
+					if nest:GetAttribute("Unlocked") ~= true then
+						local prompt = nest:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+						if prompt then Game.FirePrompt(prompt) end
+
+						local remote = plotRemote("Nests")
+						local index = tonumber(nest.Name)
+
+						if remote and index then remote:FireServer(index) end
+
+						task.wait(0.25)
+					end
+				end
+			end)
+		end
+	end
+end)
+
+onCleanup(function() plotRunning = false end)
+
+local nestWatched = {}
+
+local function applySpawnNest(state)
+	Plot.SpawnNest = state
+
+	local plot = Game.Plot()
+	local nests = plot and plot:FindFirstChild("Nests")
+	if not nests then return end
+
+	for _, nest in ipairs(nests:GetChildren()) do
+		for _, descendant in ipairs(nest:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.Name ~= "FacilityNestAnchor" then
+				descendant.LocalTransparencyModifier = state and 0 or 1
+
+				if not nestWatched[descendant] then
+					nestWatched[descendant] = true
+
+					descendant:GetPropertyChangedSignal("LocalTransparencyModifier"):Connect(function()
+						if Plot.SpawnNest and descendant.LocalTransparencyModifier ~= 0 then
+							descendant.LocalTransparencyModifier = 0
+						end
+					end)
+				end
+			end
+		end
+
+		local anchor = nest:FindFirstChild("FacilityNestAnchor")
+
+		if state then
+			if not anchor then
+				anchor = Instance.new("Part")
+				anchor.Name = "FacilityNestAnchor"
+				anchor.Size = Vector3.new(2, 2, 2)
+				anchor.CFrame = nest:GetPivot() * CFrame.new(0, 1.5, 0)
+				anchor.Transparency = 1
+				anchor.CanCollide = false
+				anchor.CanTouch = false
+				anchor.CanQuery = false
+				anchor.Anchored = true
+				anchor.Parent = nest
+			end
+
+			if not anchor:FindFirstChildOfClass("ProximityPrompt") then
+				local prompt = Instance.new("ProximityPrompt")
+				prompt.Name = "NestPlacePrompt"
+				prompt.ActionText = "Place Egg"
+				prompt.ObjectText = "Nest " .. nest.Name
+				prompt.HoldDuration = 0
+				prompt.MaxActivationDistance = 25
+				prompt.RequiresLineOfSight = false
+				prompt.Parent = anchor
+			end
+		elseif anchor then
+			pcall(function() anchor:Destroy() end)
+		end
+	end
+end
+
+onCleanup(function()
+	if Plot.SpawnNest then pcall(applySpawnNest, false) end
+end)
+
+local Fuse = {
+	Enabled = false,
+	ProtectFavorited = true,
+	AutoFavorite = false,
+	Rarities = {},
+}
+
+local function gameRemote(name)
+	local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+	local gameFolder = remotes and remotes:FindFirstChild("Game")
+	return gameFolder and gameFolder:FindFirstChild(name)
+end
+
+local function favoritePet(key)
+	local remote = gameRemote("FavoritePet")
+	if remote and key then pcall(function() remote:FireServer(key) end) end
+end
+
+local function warpTo(position)
+	local root = Game.Root()
+	if not root then return false end
+
+	if (root.Position - position).Magnitude > 25 then
+		pcall(function()
+			root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+		end)
+		task.wait(0.4)
+	end
+
+	return true
+end
+
+local function fuseStep()
+	local slots = LocalPlayer:FindFirstChild("FusionSlots")
+	local result = LocalPlayer:FindFirstChild("FusionResult")
+	local action = gameRemote("FusionAction")
+	local place = gameRemote("FusionPetPlace")
+
+	if not slots or not action or not place then return end
+
+	local humanoid = Game.Humanoid()
+	local character = LocalPlayer.Character
+	if not humanoid or not character then return end
+
+	local status = slots:GetAttribute("FusionStatus")
+
+	if status == "Result" then
+		warpTo(FUSION_SPOT)
+
+		if slots:GetAttribute("FusionFailed") == true then
+			action:FireServer("Claim", slots:GetAttribute("FusionResultKey"))
+		else
+			local pet = result and result:FindFirstChild("Pet")
+			local key = pet and pet:GetAttribute("PetKey")
+
+			if key then
+				action:FireServer("Claim", key)
+
+				if Fuse.AutoFavorite then
+					task.delay(0.5, function() favoritePet(key) end)
+				end
+			else
+				local functionals = workspace:FindFirstChild("Functionals")
+				local fusion = functionals and functionals:FindFirstChild("Fusion")
+				local output = fusion and fusion:FindFirstChild("FusionOutput")
+				local prompt = output and output:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+				if prompt then Game.FirePrompt(prompt) end
+			end
+		end
+
+		task.wait(1)
+		return
+	end
+
+	if status == "Waiting" then
+		local endsAt = slots:GetAttribute("EndsAt") or 0
+
+		if workspace:GetServerTimeNow() >= endsAt then
+			warpTo(FUSION_SPOT)
+			action:FireServer("Fuse")
+			task.wait(2)
+		end
+
+		return
+	end
+
+	local empty = {}
+
+	for index = 1, 4 do
+		if not slots:FindFirstChild(tostring(index)) then
+			table.insert(empty, index)
+		end
+	end
+
+	if #empty == 0 or slots:GetAttribute("Ready") == true then
+		warpTo(FUSION_SPOT)
+		action:FireServer("Start")
+		task.wait(2)
+		return
+	end
+
+	local petData = Data.Pets or {}
+	local usable = {}
+
+	local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+	if not backpack then return end
+
+	for _, tool in ipairs(backpack:GetChildren()) do
+		if tool:IsA("Tool") and CollectionService:HasTag(tool, "Pet") then
+			local petName = tool:GetAttribute("PetName") or tool.Name
+			local entry = petData[string.match(petName, "^(.-)%s*%[") or petName] or petData[petName]
+			local rarity = entry and entry.Rarity or tool:GetAttribute("Rarity")
+			local favorited = tool:GetAttribute("Favorited") == true
+
+			if rarity and Fuse.Rarities[rarity] == true then
+				if not (Fuse.ProtectFavorited and favorited) then
+					table.insert(usable, tool)
+				end
+			end
+		end
+	end
+
+	if #usable < #empty then return end
+
+	warpTo(FUSION_SPOT)
+
+	for _, slotIndex in ipairs(empty) do
+		if #usable == 0 then break end
+
+		local tool = table.remove(usable, 1)
+
+		if tool and tool.Parent == backpack then
+			humanoid:UnequipTools()
+			task.wait(0.05)
+			humanoid:EquipTool(tool)
+
+			local deadline = os.clock() + 0.8
+
+			while tool.Parent ~= character and os.clock() < deadline do
+				task.wait(0.05)
+			end
+
+			if tool.Parent == character then
+				task.wait(0.1)
+				place:FireServer(slotIndex)
+				task.wait(0.25)
+			end
+		end
+	end
+
+	task.wait(0.5)
+
+	if slots:GetAttribute("Ready") == true or #slots:GetChildren() >= 4 then
+		action:FireServer("Start")
+		task.wait(2)
+	end
+end
+
+local fuseRunning = true
+
+task.spawn(function()
+	while fuseRunning do
+		task.wait(0.5)
+		if Fuse.Enabled then pcall(fuseStep) end
+	end
+end)
+
+onCleanup(function() fuseRunning = false end)
+
+local function emptyBasket()
+	local basket = LocalPlayer:FindFirstChild("Basket")
+	if not basket then return 0 end
+
+	local dropped = 0
+
+	for _, child in ipairs(basket:GetChildren()) do
+		local eggName = child:GetAttribute("Egg")
+
+		if type(eggName) == "string" then
+			Game.Fire("BasketDrop", eggName)
+			dropped = dropped + 1
+			task.wait(0.05)
+		end
+	end
+
+	return dropped
+end
+
+local TELEPORTS = {
+	["My Plot"] = function()
+		local top = Game.PlotTop()
+		return top and top + Vector3.new(0, 4, 0) or nil
+	end,
+	["Volcano Top"] = function() return VOLCANO_TOP end,
+	["Fuse Machine"] = function() return FUSION_SPOT + Vector3.new(0, 3, 0) end,
+}
+
+local TELEPORT_NAMES = { "My Plot", "Volcano Top", "Fuse Machine" }
+
+local stormWatchRunning = true
+
+task.spawn(function()
+	local lastVariant = nil
+
+	while stormWatchRunning do
+		task.wait(2)
+
+		local storm = activeStorm()
+		local variant = storm and storm.Variant or nil
+
+		if variant ~= lastVariant then
+			lastVariant = variant
+
+			if variant and Mutations.Notify then
+				Library:Notify({
+					Title = "Storm",
+					Text = string.format("%s storm active, mutation %s.",
+						tostring(variant),
+						tostring(STORM_TO_MUTATION[variant] or "unknown")),
+					Style = "warning",
+					Duration = 6,
+				})
+			end
+		end
+	end
+end)
+
+onCleanup(function() stormWatchRunning = false end)
+
 local Window = Library:Window({
 	Title             = "Facility",
 	Suffix            = ".Sexility",
@@ -2072,6 +2732,8 @@ local Window = Library:Window({
 })
 
 local FarmTab   = Window:Tab("Farm", "leaf")
+local PlotTab   = Window:Tab("Plot", "box")
+local EventTab  = Window:Tab("Event", "zap")
 local PlayerTab = Window:Tab("Player", "user")
 local ServerTab = Window:Tab("Server", "globe")
 local MiscTab   = Window:Tab("Misc", "wrench")
@@ -2151,14 +2813,95 @@ collectBox:Dropdown({
 collectBox:Slider({
 	Text = "Fly Speed",
 	Flag = "farm_fly_speed",
-	Min = 100, Max = 1300, Default = 600,
+	Min = 100, Max = 3000, Default = 600,
 	Suffix = " studs/s",
 	Callback = function(value)
-		Game.FlySpeed = math.clamp(tonumber(value) or 600, 100, 1300)
+		Game.FlySpeed = math.clamp(tonumber(value) or 600, 100, 3000)
 	end,
 })
 
-local plantBox = FarmTab:Section("Plant & Hatch", 1)
+collectBox:Toggle({
+	Text = "Prefer Heaviest",
+	Flag = "farm_prefer_heaviest",
+	Default = false,
+	Callback = function(state) Weight.PreferHeaviest = state end,
+})
+
+collectBox:Slider({
+	Text = "Min Weight",
+	Flag = "farm_min_weight",
+	Min = 0, Max = 50, Default = 0,
+	Decimals = 1,
+	Suffix = " kg",
+	Callback = function(value) Weight.Minimum = tonumber(value) or 0 end,
+})
+
+local mutationBox = FarmTab:Section("Mutation Sniper", 1)
+
+mutationBox:Toggle({
+	Text = "Prioritize Mutated Eggs",
+	Flag = "mut_prioritize",
+	Default = true,
+	Callback = function(state) Mutations.Prioritize = state end,
+})
+
+mutationBox:Dropdown({
+	Text = "Min Mutation Tier",
+	Flag = "mut_tier",
+	Options = MUTATION_TIERS,
+	Default = MUTATION_TIERS[1],
+	Callback = function(value) Mutations.MinTier = tostring(value) end,
+})
+
+mutationBox:Toggle({
+	Text = "Wait For Storm",
+	Flag = "mut_wait_storm",
+	Default = false,
+	Callback = function(state) Mutations.WaitForStorm = state end,
+})
+
+mutationBox:Toggle({
+	Text = "Storm Alerts",
+	Flag = "mut_notify",
+	Default = true,
+	Callback = function(state) Mutations.Notify = state end,
+})
+
+local radarLabel = mutationBox:Label("No high tier egg in sight", { Style = "dim" })
+
+task.spawn(function()
+	local shown = nil
+
+	while true do
+		task.wait(1)
+
+		local best = nil
+		local bestWeight = 0
+
+		for _, child in ipairs(ActiveEggs:GetChildren()) do
+			local eggName = child:GetAttribute("Egg")
+			local mutation = mutationOf(child)
+
+			if type(eggName) == "string" and mutation then
+				local weight = MUTATION_WEIGHT[mutation] or 0
+
+				if weight > bestWeight then
+					bestWeight = weight
+					best = string.format("%s  ·  %s", eggName, mutation)
+				end
+			end
+		end
+
+		local text = best or "No high tier egg in sight"
+
+		if text ~= shown then
+			shown = text
+			pcall(function() radarLabel:Set(text) end)
+		end
+	end
+end)
+
+local plantBox = PlotTab:Section("Plant & Hatch", 1)
 
 plantBox:Toggle({
 	Text = "Auto Plant Eggs",
@@ -2191,7 +2934,7 @@ plantBox:Toggle({
 	end,
 })
 
-local petBox = FarmTab:Section("Pets", 2)
+local petBox = PlotTab:Section("Pets", 2)
 
 petBox:Toggle({
 	Text = "Auto Place Best Pets",
@@ -2239,7 +2982,112 @@ petBox:Dropdown({
 	end,
 })
 
-local shopBox = FarmTab:Section("Shop", 1)
+petBox:Toggle({
+	Text = "Skip Max Age Pets",
+	Flag = "farm_feed_skip_age",
+	Default = true,
+	Callback = function(state) Pets.SkipMaxAge = state end,
+})
+
+petBox:Toggle({
+	Text = "Allow Premium Food",
+	Flag = "farm_feed_premium",
+	Default = true,
+	Callback = function(state) Pets.AllowPremium = state end,
+})
+
+local nestBox = PlotTab:Section("Nests & Upgrades", 1)
+
+nestBox:Toggle({
+	Text = "Auto Upgrade Hatch Luck",
+	Flag = "plot_upgrade_luck",
+	Default = false,
+	Callback = function(state) Plot.UpgradeLuck = state end,
+})
+
+nestBox:Toggle({
+	Text = "Auto Unlock Nests",
+	Flag = "plot_unlock_nests",
+	Default = false,
+	Callback = function(state) Plot.UnlockNests = state end,
+})
+
+nestBox:Toggle({
+	Text = "Spawn Nest Glitch",
+	Flag = "plot_spawn_nest",
+	Default = false,
+	Callback = function(state) pcall(applySpawnNest, state) end,
+})
+
+local magmaBox = EventTab:Section("Magma Dip", 1)
+
+magmaBox:Toggle({
+	Text = "Auto Magma Lava Dip",
+	Flag = "event_magma",
+	Default = false,
+	Callback = function(state) Magma.Enabled = state end,
+})
+
+magmaBox:Slider({
+	Text = "Dip Duration",
+	Flag = "event_magma_duration",
+	Min = 3, Max = 20, Default = 9.5,
+	Decimals = 1,
+	Suffix = " s",
+	Callback = function(value) Magma.Duration = tonumber(value) or 9.5 end,
+})
+
+magmaBox:Button({
+	Text = "Teleport To Volcano",
+	Callback = function()
+		volcanoPlatform()
+		warpTo(VOLCANO_TOP)
+	end,
+})
+
+local fuseBox = EventTab:Section("Fuse Machine", 2)
+
+fuseBox:Toggle({
+	Text = "Auto Fuse",
+	Flag = "event_fuse",
+	Default = false,
+	Callback = function(state) Fuse.Enabled = state end,
+})
+
+fuseBox:Dropdown({
+	Text = "Rarities To Fuse",
+	Flag = "event_fuse_rarities",
+	Options = RARITY_ORDER,
+	Default = {},
+	Multi = true,
+	Empty = "Nothing",
+	Callback = function(selected)
+		local set = {}
+		for _, name in ipairs(selected) do set[name] = true end
+		Fuse.Rarities = set
+	end,
+})
+
+fuseBox:Toggle({
+	Text = "Protect Favorited Pets",
+	Flag = "event_fuse_protect",
+	Default = true,
+	Callback = function(state) Fuse.ProtectFavorited = state end,
+})
+
+fuseBox:Toggle({
+	Text = "Auto Favorite Results",
+	Flag = "event_fuse_favorite",
+	Default = false,
+	Callback = function(state) Fuse.AutoFavorite = state end,
+})
+
+fuseBox:Button({
+	Text = "Teleport To Fuse Machine",
+	Callback = function() warpTo(FUSION_SPOT) end,
+})
+
+local shopBox = FarmTab:Section("Shop", 2)
 
 shopBox:Toggle({
 	Text = "Auto Buy Food",
@@ -2365,7 +3213,53 @@ moveBox:Slider({
 
 end
 
-local utilityBox = PlayerTab:Section("Utility", 2)
+local travelBox = PlayerTab:Section("Fast Travel", 2)
+
+local travelTarget = TELEPORT_NAMES[1]
+
+travelBox:Dropdown({
+	Text = "Destination",
+	Flag = "travel_target",
+	Options = TELEPORT_NAMES,
+	Default = TELEPORT_NAMES[1],
+	Callback = function(value) travelTarget = tostring(value) end,
+})
+
+travelBox:Button({
+	Text = "Teleport",
+	Callback = function()
+		local resolve = TELEPORTS[travelTarget]
+		local position = resolve and resolve()
+
+		if not position then
+			Library:Notify({
+				Title = "Teleport",
+				Text = "That destination is not available right now.",
+				Style = "error",
+				Duration = 5,
+			})
+			return
+		end
+
+		warpTo(position)
+	end,
+})
+
+travelBox:Button({
+	Text = "Empty Basket",
+	Callback = function()
+		local dropped = emptyBasket()
+
+		Library:Notify({
+			Title = "Basket",
+			Text = string.format("Dropped %d egg(s).", dropped),
+			Style = dropped > 0 and "success" or "normal",
+			Duration = 4,
+		})
+	end,
+})
+
+local utilityBox = PlayerTab:Section("Utility", 1)
 
 utilityBox:Toggle({
 	Text = "Instant Pickup",
@@ -2374,7 +3268,7 @@ utilityBox:Toggle({
 	Callback = instantPickup,
 })
 
-local espBox = PlayerTab:Section("Egg Esp", 2)
+local espBox = PlayerTab:Section("Egg Esp", 1)
 
 espBox:Toggle({
 	Text = "Enable",
