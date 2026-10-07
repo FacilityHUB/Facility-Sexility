@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -961,49 +958,6 @@ end)
 
 onCleanup(function() Defense.Enabled = false end)
 
-local Scanner = {
-	Ranked = {},
-	Interval = 2,
-	Cursor = 0,
-	Running = true,
-}
-
-local function rankPlots()
-	local ranked = {}
-
-	for _, record in ipairs(Plots:Scan(true)) do
-		local count, best, score = plotContents(record)
-
-		table.insert(ranked, {
-			Record = record,
-			Name = record.Name,
-			Mine = record.Mine,
-			Count = count,
-			Best = best,
-			BestRank = best and RARITY_RANK[best] or 0,
-			Score = score,
-		})
-	end
-
-	table.sort(ranked, function(a, b)
-		if a.Score ~= b.Score then return a.Score > b.Score end
-		return a.Count > b.Count
-	end)
-
-	Scanner.Ranked = ranked
-
-	return ranked
-end
-
-task.spawn(function()
-	while Scanner.Running do
-		task.wait(math.clamp(Scanner.Interval, 1, 15))
-		pcall(rankPlots)
-	end
-end)
-
-onCleanup(function() Scanner.Running = false end)
-
 local PLAYER_TEAMS = { "enemy", "friendly", "whitelist" }
 
 local function setPlayerTeams(key, value)
@@ -1051,34 +1005,14 @@ for _, rarity in ipairs(RARITY_ORDER) do
 	})
 end
 
-Esp:AddTeam("plot", {
-	enabled       = true,
-	box           = true,
-	boxColor      = { Color3.fromRGB(255, 215, 90), 1 },
-	name          = true,
-	nameColor     = { Color3.fromRGB(255, 215, 90), 1 },
-	distance      = true,
-	distanceColor = { Color3.fromRGB(255, 215, 90), 1 },
-	healthBar     = false,
-	healthText    = false,
-	weapon        = false,
-	skeleton      = false,
-	chams         = false,
-	tracer        = false,
-	tracerColor   = { Color3.fromRGB(255, 215, 90), 1 },
-	maxDistance   = 6000,
-})
-
 local EspState = {
 	Loaded = false,
 	Players = false,
 	Crates = false,
-	Plots = false,
 	IncludePlotCrates = false,
 	MinRank = 0,
 	ShowTier = true,
 	TrackedCrates = {},
-	TrackedPlots = {},
 	Connections = {},
 }
 
@@ -1099,7 +1033,7 @@ end
 
 local function releaseEspIfIdle()
 	if not EspState.Loaded then return end
-	if EspState.Players or EspState.Crates or EspState.Plots then return end
+	if EspState.Players or EspState.Crates then return end
 
 	pcall(function() Esp:Unload() end)
 	EspState.Loaded = false
@@ -1201,112 +1135,11 @@ local function refreshCrateEsp()
 	end
 end
 
-local function untrackPlot(sign)
-	if not EspState.TrackedPlots[sign] then return end
-
-	EspState.TrackedPlots[sign] = nil
-	pcall(function() Esp:RemoveInstance(sign) end)
-end
-
-local PLOT_ANCHOR = "FacilityPlotAnchor"
-
-local function plotMarker(record)
-	local sign = record.Sign
-
-	if sign and sign.Parent and anchorOf(sign) then return sign end
-
-	local floor = record.Floor
-	if not floor or not floor:IsA("BasePart") then return nil end
-
-	local existing = record.Plot:FindFirstChild(PLOT_ANCHOR)
-
-	if existing and existing.Parent then
-		existing.CFrame = CFrame.new(floor.Position + Vector3.new(0, 8, 0))
-		return existing
-	end
-
-	local marker = nil
-
-	local ok = pcall(function()
-		marker = Instance.new("Part")
-		marker.Name = PLOT_ANCHOR
-		marker.Size = Vector3.new(4, 6, 4)
-		marker.Anchored = true
-		marker.CanCollide = false
-		marker.CanQuery = false
-		marker.CanTouch = false
-		marker.Massless = true
-		marker.Transparency = 1
-		marker.CFrame = CFrame.new(floor.Position + Vector3.new(0, 8, 0))
-		marker.Parent = record.Plot
-	end)
-
-	if not ok then return nil end
-
-	return marker
-end
-
-local function clearPlotMarkers()
-	for _, child in ipairs(workspace:GetChildren()) do
-		if child.Name:find("Plot Building") then
-			local marker = child:FindFirstChild(PLOT_ANCHOR)
-			if marker then pcall(function() marker:Destroy() end) end
-		end
-	end
-end
-
-local function refreshPlotEsp()
-	if not EspState.Plots then
-		for sign in pairs(EspState.TrackedPlots) do
-			untrackPlot(sign)
-		end
-		return
-	end
-
-	local present = {}
-
-	for _, entry in ipairs(Scanner.Ranked) do
-		local record = entry.Record
-		local sign = not record.Mine and record.Plot.Parent and plotMarker(record) or nil
-
-		if sign then
-			present[sign] = true
-
-			local text = string.format("%s  %d crate%s%s",
-				entry.Name,
-				entry.Count,
-				entry.Count == 1 and "" or "s",
-				entry.Best and ("  " .. entry.Best) or "")
-
-			local state = EspState.TrackedPlots[sign]
-
-			if not state then
-				local object = Esp:AddInstance(sign, { Team = "plot", Text = text })
-				EspState.TrackedPlots[sign] = { Object = object, Text = text }
-			elseif state.Text ~= text then
-				state.Text = text
-				if state.Object then state.Object._displayName = text end
-			end
-		end
-	end
-
-	for sign in pairs(EspState.TrackedPlots) do
-		if not present[sign] then untrackPlot(sign) end
-	end
-end
-
-local function stopPlotEsp()
-	EspState.Plots = false
-	pcall(refreshPlotEsp)
-	pcall(clearPlotMarkers)
-end
-
 task.spawn(function()
 	while true do
 		task.wait(1)
 
 		if EspState.Crates then pcall(refreshCrateEsp) end
-		if EspState.Plots then pcall(refreshPlotEsp) end
 	end
 end)
 
@@ -1330,7 +1163,6 @@ onCleanup(function()
 	EspState.Players = false
 
 	pcall(refreshCrateEsp)
-	pcall(stopPlotEsp)
 
 	for _, connection in ipairs(EspState.Connections) do
 		pcall(function() connection:Disconnect() end)
@@ -1592,7 +1424,6 @@ local StealTab   = Window:Tab("Steal", "hand")
 local PlotTab    = Window:Tab("Plot", "box")
 local VisualsTab = Window:Tab("Visuals", "eye")
 local MovementTab = Window:Tab("Movement", "move")
-local ServerTab  = Window:Tab("Server", "globe")
 local MiscTab    = Window:Tab("Misc", "wrench")
 local HookTab    = Window:Tab("Webhooks", "send")
 local Settings   = Window:Tab("Settings", "cog")
@@ -1976,7 +1807,6 @@ travelBox:Button({
 	Text = "Rescan Plots",
 	Callback = function()
 		Plots:Scan(true)
-		rankPlots()
 		notify("Plots", string.format("%d plots found.", #Plots.List), "success", 4)
 	end,
 })
@@ -2061,53 +1891,7 @@ crateEspBox:Toggle({
 	end,
 })
 
-local plotEspBox = VisualsTab:Section("Plot Esp", 2)
-
-plotEspBox:Toggle({
-	Text = "Plot Esp",
-	Flag = "esp_plots",
-	Default = false,
-	Callback = function(state)
-		if state and not ensureEsp() then return end
-
-		if state then
-			EspState.Plots = true
-			pcall(refreshPlotEsp)
-		else
-			stopPlotEsp()
-		end
-
-		releaseEspIfIdle()
-	end,
-})
-	:ColorPicker({
-		Flag = "esp_plot_color",
-		Default = Color3.fromRGB(255, 215, 90),
-		Callback = function(color, alpha)
-			local packed = { color, alpha ~= nil and (1 - alpha) or 1 }
-			Esp.teamSettings.plot.boxColor = packed
-			Esp.teamSettings.plot.nameColor = packed
-			Esp.teamSettings.plot.distanceColor = packed
-			Esp.teamSettings.plot.tracerColor = packed
-		end,
-	})
-
-plotEspBox:Toggle({
-	Text = "Tracers",
-	Flag = "esp_plot_tracer",
-	Default = false,
-	Callback = function(state) Esp.teamSettings.plot.tracer = state end,
-})
-
-plotEspBox:Slider({
-	Text = "Max Distance",
-	Flag = "esp_plot_distance",
-	Min = 100, Max = 12000, Default = 6000,
-	Suffix = " studs",
-	Callback = function(value) Esp.teamSettings.plot.maxDistance = value end,
-})
-
-local playerEspBox = VisualsTab:Section("Player Esp", 1)
+local playerEspBox = VisualsTab:Section("Player Esp", 2)
 
 playerEspBox:Toggle({
 	Text = "Player Esp",
@@ -2197,7 +1981,7 @@ playerEspBox:Toggle({
 	Callback = function(state) setPlayerTeams("offScreenArrow", state) end,
 })
 
-local displayBox = VisualsTab:Section("Display", 2)
+local displayBox = VisualsTab:Section("Display", "full")
 
 displayBox:Slider({
 	Text = "Text Size",
@@ -2338,7 +2122,7 @@ otherBox:Toggle({
 
 end
 
-local hopBox = ServerTab:Section("Hop", 1)
+local hopBox = MiscTab:Section("Hop", 1)
 
 hopBox:Dropdown({
 	Text = "Mode",
@@ -2359,7 +2143,7 @@ hopBox:Toggle({
 })
 
 hopBox:Slider({
-	Text = "Patience",
+	Text = "Wait Before Hop",
 	Flag = "hop_patience",
 	Min = 5, Max = 180, Default = 25,
 	Suffix = " s",
@@ -2392,7 +2176,7 @@ hopBox:Button({
 	end,
 })
 
-local browserBox = ServerTab:Section("Browser", 2)
+local browserBox = MiscTab:Section("Browser", 1)
 
 local browserApi = nil
 
@@ -2422,7 +2206,7 @@ browserBox:Button({
 	end,
 })
 
-local promptBox = MiscTab:Section("Prompts", 1)
+local promptBox = MiscTab:Section("Prompts", 2)
 
 promptBox:Toggle({
 	Text = "Instant Prompts",
@@ -2476,16 +2260,6 @@ local Hooks = {
 	Index = 0,
 }
 
-local hookBox = HookTab:Section("Saved Webhooks", "full")
-
-local hookStatus = hookBox:Label("no webhook saved", { Style = "bright" })
-
-local hookTable = hookBox:Table({
-	Columns = { "#", "Id", "Added" },
-	MaxRows = 10,
-	EmptyText = "Add one from your clipboard",
-})
-
 local function hookId(url)
 	return tostring(url):match("/webhooks/(%d+)") or "unknown"
 end
@@ -2521,20 +2295,9 @@ end
 
 local hookDropdown
 
+local hookStatus
+
 local function refreshHookUi()
-	local rows = {}
-
-	for index, entry in ipairs(Hooks.List) do
-		table.insert(rows, {
-			tostring(index),
-			entry.Id,
-			entry.Added or "-",
-			Style = index == Hooks.Index and "warning" or nil,
-		})
-	end
-
-	pcall(function() hookTable:SetRows(rows) end)
-
 	local text
 
 	if #Hooks.List == 0 then
@@ -2545,7 +2308,9 @@ local function refreshHookUi()
 		text = string.format("%d saved  ·  none selected", #Hooks.List)
 	end
 
-	pcall(function() hookStatus:Set(text) end)
+	if hookStatus then
+		pcall(function() hookStatus:Set(text) end)
+	end
 
 	if hookDropdown then
 		pcall(function() hookDropdown:SetOptions(hookChoices()) end)
@@ -2648,6 +2413,8 @@ end
 
 local manageBox = HookTab:Section("Manage", 1)
 
+hookStatus = manageBox:Label("no webhook saved", { Style = "bright" })
+
 hookDropdown = manageBox:Dropdown({
 	Text = "Active",
 	Flag = "hook_active",
@@ -2659,25 +2426,11 @@ hookDropdown = manageBox:Dropdown({
 	end,
 })
 
+local promptForUrl
+
 manageBox:Button({
-	Text = "Add From Clipboard",
-	Callback = function()
-		local reader = getclipboard or toclipboard
-
-		if type(reader) ~= "function" then
-			notify("Webhooks", "This executor has no clipboard reader.", "error", 8)
-			return
-		end
-
-		local ok, value = pcall(reader)
-
-		if not ok or type(value) ~= "string" then
-			notify("Webhooks", "Could not read the clipboard.", "error", 6)
-			return
-		end
-
-		addHook(value)
-	end,
+	Text = "Add Webhook",
+	Callback = function() promptForUrl() end,
 })
 
 manageBox:Button({
@@ -2765,6 +2518,167 @@ eventBox:Toggle({
 
 eventBox:Label("Alerts go to the active webhook above.", { Style = "dim" })
 
+local HOOK_GUI = "FacilityWebhookPrompt"
+
+local function hookGuiParent()
+	if type(gethui) == "function" then
+		local ok, host = pcall(gethui)
+		if ok and host then return host end
+	end
+
+	local ok, core = pcall(function() return game:GetService("CoreGui") end)
+	if ok and core then return core end
+
+	return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+function promptForUrl()
+	local parent = hookGuiParent()
+
+	local existing = parent:FindFirstChild(HOOK_GUI)
+	if existing then pcall(function() existing:Destroy() end) end
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = HOOK_GUI
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 2147483647
+	gui.Parent = parent
+
+	local shade = Instance.new("Frame")
+	shade.Size = UDim2.fromScale(1, 1)
+	shade.BackgroundColor3 = Color3.new(0, 0, 0)
+	shade.BackgroundTransparency = 0.45
+	shade.BorderSizePixel = 0
+	shade.Parent = gui
+
+	local card = Instance.new("Frame")
+	card.Size = UDim2.fromOffset(460, 168)
+	card.Position = UDim2.new(0.5, -230, 0.5, -84)
+	card.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+	card.BorderSizePixel = 0
+	card.Parent = gui
+
+	local cardCorner = Instance.new("UICorner")
+	cardCorner.CornerRadius = UDim.new(0, 8)
+	cardCorner.Parent = card
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(58, 58, 66)
+	stroke.Thickness = 1
+	stroke.Parent = card
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, -32, 0, 24)
+	title.Position = UDim2.fromOffset(16, 14)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamMedium
+	title.TextSize = 15
+	title.TextColor3 = Color3.fromRGB(236, 236, 242)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Text = "Paste your Discord webhook"
+	title.Parent = card
+
+	local hint = Instance.new("TextLabel")
+	hint.Size = UDim2.new(1, -32, 0, 18)
+	hint.Position = UDim2.fromOffset(16, 36)
+	hint.BackgroundTransparency = 1
+	hint.Font = Enum.Font.Gotham
+	hint.TextSize = 12
+	hint.TextColor3 = Color3.fromRGB(140, 142, 152)
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	hint.Text = "https://discord.com/api/webhooks/..."
+	hint.Parent = card
+
+	local field = Instance.new("TextBox")
+	field.Size = UDim2.new(1, -32, 0, 38)
+	field.Position = UDim2.fromOffset(16, 62)
+	field.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+	field.BorderSizePixel = 0
+	field.Font = Enum.Font.Code
+	field.TextSize = 13
+	field.TextColor3 = Color3.fromRGB(226, 226, 234)
+	field.PlaceholderText = "paste here"
+	field.PlaceholderColor3 = Color3.fromRGB(96, 98, 108)
+	field.ClearTextOnFocus = false
+	field.TextXAlignment = Enum.TextXAlignment.Left
+	field.TextTruncate = Enum.TextTruncate.AtEnd
+	field.Text = ""
+	field.Parent = card
+
+	local fieldCorner = Instance.new("UICorner")
+	fieldCorner.CornerRadius = UDim.new(0, 5)
+	fieldCorner.Parent = field
+
+	local fieldPad = Instance.new("UIPadding")
+	fieldPad.PaddingLeft = UDim.new(0, 10)
+	fieldPad.PaddingRight = UDim.new(0, 10)
+	fieldPad.Parent = field
+
+	local function button(text, offset, accent)
+		local element = Instance.new("TextButton")
+		element.Size = UDim2.fromOffset(104, 32)
+		element.Position = UDim2.new(1, offset, 1, -48)
+		element.BackgroundColor3 = accent and Color3.fromRGB(44, 110, 70) or Color3.fromRGB(38, 38, 44)
+		element.BorderSizePixel = 0
+		element.AutoButtonColor = true
+		element.Font = Enum.Font.GothamMedium
+		element.TextSize = 13
+		element.TextColor3 = accent and Color3.fromRGB(214, 255, 228) or Color3.fromRGB(214, 214, 222)
+		element.Text = text
+		element.Parent = card
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 5)
+		corner.Parent = element
+
+		return element
+	end
+
+	local cancel = button("Cancel", -232, false)
+	local confirm = button("Save", -120, true)
+
+	local function close()
+		pcall(function() gui:Destroy() end)
+	end
+
+	local function submit()
+		local value = field.Text
+
+		if validUrl(value) then
+			close()
+			addHook(value)
+		else
+			field.Text = ""
+			field.PlaceholderText = "not a webhook url, try again"
+			hint.TextColor3 = Color3.fromRGB(255, 120, 120)
+		end
+	end
+
+	cancel.MouseButton1Click:Connect(close)
+	confirm.MouseButton1Click:Connect(submit)
+
+	field.FocusLost:Connect(function(enterPressed)
+		if enterPressed then submit() end
+	end)
+
+	shade.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then close() end
+	end)
+
+	task.defer(function()
+		pcall(function() field:CaptureFocus() end)
+	end)
+end
+
+onCleanup(function()
+	local ok, parent = pcall(hookGuiParent)
+	if not ok or not parent then return end
+
+	local existing = parent:FindFirstChild(HOOK_GUI)
+	if existing then pcall(function() existing:Destroy() end) end
+end)
+
 task.spawn(function()
 	task.wait(1)
 
@@ -2803,7 +2717,7 @@ hudPanel.Content:Divider()
 hudPanel.Content:Label("status", { Style = "dim" })
 local panelStatus = hudPanel.Content:Label("Idle")
 
-local counterBox = MiscTab:Section("Counters", 2)
+local counterBox = MiscTab:Section("Counters", 1)
 
 local counterShown = false
 
@@ -2892,7 +2806,6 @@ Window:SetTab(StealTab)
 
 task.spawn(function()
 	Plots:Scan(true)
-	rankPlots()
 
 	if not Plots.Mine then
 		notify("Facility", "Your plot was not found yet, it will be picked up on the next scan.", "warning", 6)
