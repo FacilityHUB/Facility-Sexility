@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -2265,7 +2268,7 @@ for _, rarity in ipairs(RARITY_ORDER) do
 		chams         = false,
 		tracer        = false,
 		tracerColor   = { RARITY_COLORS[rarity], 1 },
-		maxDistance   = 2500,
+		maxDistance   = 5000,
 	})
 end
 
@@ -2302,10 +2305,27 @@ local function untrackEgg(model)
 	pcall(function() Esp:RemoveInstance(model) end)
 end
 
+local function anchorModel(model)
+	if not model:IsA("Model") then return model:IsA("BasePart") and model or nil end
+
+	if model.PrimaryPart and model.PrimaryPart.Parent then return model.PrimaryPart end
+
+	local part = model:FindFirstChild("EggBase")
+		or model:FindFirstChild("Handle")
+		or model:FindFirstChildWhichIsA("BasePart", true)
+
+	if not part then return nil end
+
+	pcall(function() model.PrimaryPart = part end)
+
+	return part
+end
+
 local function trackEgg(model)
 	if not EggEsp.Enabled then return end
 	if EggEsp.Tracked[model] then return end
 	if not model:IsA("Model") and not model:IsA("BasePart") then return end
+	if not anchorModel(model) then return end
 
 	local eggName = eggNameOf(model)
 	if eggName == "" then return end
@@ -3352,7 +3372,7 @@ espBox:Dropdown({
 espBox:Slider({
 	Text = "Max Distance",
 	Flag = "esp_eggs_distance",
-	Min = 100, Max = 5000, Default = 2500,
+	Min = 100, Max = 10000, Default = 5000,
 	Suffix = " studs",
 	Callback = function(value)
 		for _, rarity in ipairs(RARITY_ORDER) do
