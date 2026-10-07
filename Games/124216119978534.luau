@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -2254,83 +2251,114 @@ Esp.teamSettings.whitelist.enabled = false
 
 for _, rarity in ipairs(RARITY_ORDER) do
 	Esp:AddTeam("egg" .. rarity, {
-		enabled      = true,
-		box          = true,
-		boxColor     = { RARITY_COLORS[rarity], 1 },
-		name         = true,
-		nameColor    = { RARITY_COLORS[rarity], 1 },
-		distance     = true,
+		enabled       = true,
+		box           = true,
+		boxColor      = { RARITY_COLORS[rarity], 1 },
+		name          = true,
+		nameColor     = { RARITY_COLORS[rarity], 1 },
+		distance      = true,
 		distanceColor = { RARITY_COLORS[rarity], 1 },
-		healthBar    = false,
-		healthText   = false,
-		tracer       = false,
-		tracerColor  = { RARITY_COLORS[rarity], 1 },
-		maxDistance  = 2500,
+		healthBar     = false,
+		healthText    = false,
+		weapon        = false,
+		skeleton      = false,
+		chams         = false,
+		tracer        = false,
+		tracerColor   = { RARITY_COLORS[rarity], 1 },
+		maxDistance   = 2500,
 	})
 end
 
-local function eggModelOf(entry)
-	local position = entry:GetAttribute("Position")
-	if typeof(position) ~= "Vector3" then return nil end
+local function renderedFolder()
+	return workspace:FindFirstChild("RenderedEggs")
+end
 
-	for _, child in ipairs(entry:GetChildren()) do
-		if child:IsA("BasePart") then return entry end
-		if child:IsA("Model") then return child end
+local function eggNameOf(model)
+	local raw = model:GetAttribute("Egg")
+	if type(raw) == "string" and raw ~= "" then return raw end
+
+	return (string.gsub(model.Name, "%s*%[.*$", ""))
+end
+
+local function dataEntryFor(model)
+	local ok, pivot = pcall(function() return model:GetPivot().Position end)
+	if not ok then return nil end
+
+	for _, entry in ipairs(ActiveEggs:GetChildren()) do
+		local position = entry:GetAttribute("Position")
+
+		if typeof(position) == "Vector3" and (position - pivot).Magnitude < 10 then
+			return entry
+		end
 	end
-
-	if entry:IsA("Model") or entry:IsA("BasePart") then return entry end
 
 	return nil
 end
 
-local function untrackEgg(entry)
-	if not EggEsp.Tracked[entry] then return end
+local function untrackEgg(model)
+	if not EggEsp.Tracked[model] then return end
 
-	local model = EggEsp.Tracked[entry]
-	EggEsp.Tracked[entry] = nil
+	EggEsp.Tracked[model] = nil
 	pcall(function() Esp:RemoveInstance(model) end)
 end
 
-local function trackEgg(entry)
-	if EggEsp.Tracked[entry] then return end
+local function trackEgg(model)
 	if not EggEsp.Enabled then return end
+	if EggEsp.Tracked[model] then return end
+	if not model:IsA("Model") and not model:IsA("BasePart") then return end
 
-	local eggName = entry:GetAttribute("Egg")
-	if type(eggName) ~= "string" then return end
+	local eggName = eggNameOf(model)
+	if eggName == "" then return end
 
 	local rank = Game.EggRank(eggName)
 	if rank < EggEsp.MinRank then return end
 
-	local private = entry:GetAttribute("PrivateTo")
-	if private ~= nil and private ~= LocalPlayer.UserId then return end
+	local entry = dataEntryFor(model)
 
-	local model = eggModelOf(entry)
-	if not model then return end
-
-	EggEsp.Tracked[entry] = model
+	if entry then
+		local private = entry:GetAttribute("PrivateTo")
+		if private ~= nil and private ~= LocalPlayer.UserId then return end
+	end
 
 	local rarity = Game.EggRarity(eggName)
-	local weight = tonumber(entry:GetAttribute("Weight"))
+	local parts = { eggName }
 
-	local label = eggName
-	if weight then label = string.format("%s  %.1fkg", eggName, weight) end
+	local weight = entry and tonumber(entry:GetAttribute("Weight"))
+	if weight then table.insert(parts, string.format("%.1fkg", weight)) end
+
+	local mutation = entry and mutationOf(entry)
+	if mutation then table.insert(parts, mutation) end
+
+	EggEsp.Tracked[model] = true
 
 	Esp:AddInstance(model, {
 		Team = "egg" .. rarity,
-		Text = label,
+		Text = table.concat(parts, "  "),
 	})
 end
 
 local function refreshEggEsp()
-	for entry in pairs(EggEsp.Tracked) do
-		untrackEgg(entry)
+	for model in pairs(EggEsp.Tracked) do
+		untrackEgg(model)
 	end
 
 	if not EggEsp.Enabled then return end
 
-	for _, entry in ipairs(ActiveEggs:GetChildren()) do
-		trackEgg(entry)
+	local folder = renderedFolder()
+	if not folder then return end
+
+	for _, model in ipairs(folder:GetChildren()) do
+		trackEgg(model)
 	end
+end
+
+local function bindRenderedFolder(folder)
+	table.insert(EggEsp.Connections, folder.ChildAdded:Connect(function(model)
+		task.wait(0.15)
+		if EggEsp.Enabled then trackEgg(model) end
+	end))
+
+	table.insert(EggEsp.Connections, folder.ChildRemoved:Connect(untrackEgg))
 end
 
 local function setEggEsp(state)
@@ -2348,16 +2376,48 @@ local function setEggEsp(state)
 		EggEsp.Loaded = true
 	end
 
+	if state and not renderedFolder() then
+		Library:Notify({
+			Title = "Esp",
+			Text = "workspace.RenderedEggs not found yet, it will bind when it appears.",
+			Style = "warning",
+			Duration = 6,
+		})
+	end
+
 	refreshEggEsp()
 end
 
-table.insert(EggEsp.Connections, ActiveEggs.ChildAdded:Connect(function(entry)
-	task.defer(function()
-		if EggEsp.Enabled then trackEgg(entry) end
-	end)
-end))
+task.spawn(function()
+	local folder = renderedFolder() or workspace:WaitForChild("RenderedEggs", 60)
+	if not folder then return end
 
-table.insert(EggEsp.Connections, ActiveEggs.ChildRemoved:Connect(untrackEgg))
+	bindRenderedFolder(folder)
+	refreshEggEsp()
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(2)
+
+		if EggEsp.Enabled then
+			local folder = renderedFolder()
+
+			if folder then
+				local present = {}
+
+				for _, model in ipairs(folder:GetChildren()) do
+					present[model] = true
+					if not EggEsp.Tracked[model] then trackEgg(model) end
+				end
+
+				for model in pairs(EggEsp.Tracked) do
+					if not present[model] then untrackEgg(model) end
+				end
+			end
+		end
+	end
+end)
 
 onCleanup(function()
 	EggEsp.Enabled = false
@@ -3424,17 +3484,43 @@ utilBox:Toggle({
 	end,
 })
 
+local hudPanel = Library:Panel({
+	Title = "stats",
+	Icon = "activity",
+	Width = 170,
+	Position = UDim2.fromOffset(18, 320),
+	Visible = false,
+})
+
+hudPanel:SetVisible(false)
+
+hudPanel.Content:Label("fps", { Style = "dim" })
+local fpsLabel = hudPanel.Content:Label("-", { Style = "bright" })
+
+hudPanel.Content:Divider()
+
+hudPanel.Content:Label("ping", { Style = "dim" })
+local pingLabel = hudPanel.Content:Label("-", { Style = "bright" })
+
+hudPanel.Content:Divider()
+
+hudPanel.Content:Label("status", { Style = "dim" })
+local panelStatus = hudPanel.Content:Label("Idle")
+
 local counterBox = MiscTab:Section("Counters", 1)
 
-local counterLabel = counterBox:Label("FPS 0  ·  Ping 0 ms")
 local counterShown = false
 
 counterBox:Toggle({
-	Text = "Show FPS and Ping",
+	Text = "Show Stats Panel",
 	Flag = "misc_counters",
 	Default = false,
-	Callback = function(state) counterShown = state end,
+	Callback = function(state)
+		counterShown = state
+		hudPanel:SetVisible(state)
+	end,
 })
+	:Keybind({ Default = "RightControl", Flag = "misc_counters_key" })
 
 task.spawn(function()
 	local frames = 0
@@ -3454,6 +3540,8 @@ task.spawn(function()
 
 	onCleanup(function() connection:Disconnect() end)
 
+	local lastStatus = nil
+
 	while true do
 		task.wait(0.5)
 
@@ -3464,11 +3552,19 @@ task.spawn(function()
 				ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
 			end)
 
-			pcall(function()
-				counterLabel:Set(string.format("FPS %d  ·  Ping %d ms", fps, ping))
-			end)
+			pcall(function() fpsLabel:Set(tostring(fps)) end)
+			pcall(function() pingLabel:Set(string.format("%d ms", ping)) end)
+
+			if Game.Status ~= lastStatus then
+				lastStatus = Game.Status
+				pcall(function() panelStatus:Set(Game.Status) end)
+			end
 		end
 	end
+end)
+
+onCleanup(function()
+	pcall(function() hudPanel:SetVisible(false) end)
 end)
 
 local SaveManager      = Library.SaveManager
