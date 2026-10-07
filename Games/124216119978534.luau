@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -2244,6 +2241,8 @@ local EggEsp = {
 	Enabled = false,
 	Loaded = false,
 	MinRank = 0,
+	ShowWeight = true,
+	ShowMutation = true,
 	Tracked = {},
 	Connections = {},
 }
@@ -2283,6 +2282,8 @@ local function eggNameOf(model)
 	return (string.gsub(model.Name, "%s*%[.*$", ""))
 end
 
+local labelEgg
+
 local function dataEntryFor(model)
 	local ok, pivot = pcall(function() return model:GetPivot().Position end)
 	if not ok then return nil end
@@ -2303,6 +2304,48 @@ local function untrackEgg(model)
 
 	EggEsp.Tracked[model] = nil
 	pcall(function() Esp:RemoveInstance(model) end)
+end
+
+function labelEgg(model)
+	local state = EggEsp.Tracked[model]
+	if not state then return end
+
+	local entry = dataEntryFor(model)
+
+	if entry then
+		local weight = tonumber(entry:GetAttribute("Weight"))
+		if weight then state.Weight = weight end
+
+		local mutation = mutationOf(entry)
+		if mutation then state.Mutation = mutation end
+	end
+
+	local parts = { state.EggName }
+
+	if EggEsp.ShowWeight and state.Weight then
+		table.insert(parts, string.format("%.1fkg", state.Weight))
+	end
+
+	if EggEsp.ShowMutation and state.Mutation then
+		table.insert(parts, state.Mutation)
+	end
+
+	local text = table.concat(parts, "  ")
+
+	if state.Label == text then return end
+	state.Label = text
+
+	local object = state.Object
+
+	if object then
+		object._displayName = text
+	end
+end
+
+local function relabelAll()
+	for model in pairs(EggEsp.Tracked) do
+		pcall(labelEgg, model)
+	end
 end
 
 local function anchorModel(model)
@@ -2341,20 +2384,23 @@ local function trackEgg(model)
 	end
 
 	local rarity = Game.EggRarity(eggName)
-	local parts = { eggName }
 
-	local weight = entry and tonumber(entry:GetAttribute("Weight"))
-	if weight then table.insert(parts, string.format("%.1fkg", weight)) end
+	EggEsp.Tracked[model] = {
+		EggName = eggName,
+		Rarity = rarity,
+		Weight = nil,
+		Mutation = nil,
+		Label = nil,
+	}
 
-	local mutation = entry and mutationOf(entry)
-	if mutation then table.insert(parts, mutation) end
-
-	EggEsp.Tracked[model] = true
-
-	Esp:AddInstance(model, {
+	local object = Esp:AddInstance(model, {
 		Team = "egg" .. rarity,
-		Text = table.concat(parts, "  "),
+		Text = eggName,
 	})
+
+	EggEsp.Tracked[model].Object = object
+
+	labelEgg(model)
 end
 
 local function refreshEggEsp()
@@ -2435,6 +2481,8 @@ task.spawn(function()
 					if not present[model] then untrackEgg(model) end
 				end
 			end
+
+			pcall(relabelAll)
 		end
 	end
 end)
@@ -3378,6 +3426,26 @@ espBox:Slider({
 		for _, rarity in ipairs(RARITY_ORDER) do
 			Esp.teamSettings["egg" .. rarity].maxDistance = value
 		end
+	end,
+})
+
+espBox:Toggle({
+	Text = "Show Weight",
+	Flag = "esp_eggs_weight",
+	Default = true,
+	Callback = function(state)
+		EggEsp.ShowWeight = state
+		if EggEsp.Enabled then pcall(relabelAll) end
+	end,
+})
+
+espBox:Toggle({
+	Text = "Show Mutation",
+	Flag = "esp_eggs_mutation",
+	Default = true,
+	Callback = function(state)
+		EggEsp.ShowMutation = state
+		if EggEsp.Enabled then pcall(relabelAll) end
 	end,
 })
 
