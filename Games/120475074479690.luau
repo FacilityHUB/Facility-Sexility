@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -493,7 +490,7 @@ local function pickTarget()
 end
 
 local StealHook = nil
-local HookMinRank = 0
+local HookTiers = {}
 
 local function reportSteal(target)
 	Steal.Grabbed = Steal.Grabbed + 1
@@ -503,7 +500,9 @@ local function reportSteal(target)
 		notify("Steal", Steal.Last, "success", 3)
 	end
 
-	if Steal.Hook and StealHook and target.Rank >= HookMinRank then
+	local tierOk = next(HookTiers) == nil or HookTiers[target.Tier] == true
+
+	if Steal.Hook and StealHook and tierOk then
 		pcall(function()
 			StealHook:Embed({
 				Title = "Crate stolen",
@@ -2533,12 +2532,20 @@ eventBox:Toggle({
 })
 
 eventBox:Dropdown({
-	Text = "Min Tier For Steal Alert",
-	Flag = "hook_min_tier",
-	Options = RARITY_CHOICES,
-	Default = RARITY_CHOICES[1],
-	Callback = function(value)
-		HookMinRank = RARITY_RANK[tostring(value)] or 0
+	Text = "Tiers To Alert On",
+	Flag = "hook_tiers",
+	Options = RARITY_ORDER,
+	Default = {},
+	Multi = true,
+	Empty = "Every tier",
+	Callback = function(selected)
+		local set = {}
+
+		if type(selected) == "table" then
+			for _, name in ipairs(selected) do set[tostring(name)] = true end
+		end
+
+		HookTiers = set
 	end,
 })
 
