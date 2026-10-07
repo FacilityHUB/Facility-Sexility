@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -2353,11 +2356,11 @@ local function selectHook(index)
 	return true
 end
 
-local function addHook(url)
+local function addHook(url, quiet)
 	url = validUrl(url)
 
 	if not url then
-		notify("Webhooks", "That is not a Discord webhook url.", "error", 6)
+		if not quiet then notify("Webhooks", "That is not a Discord webhook url.", "error", 6) end
 		return false
 	end
 
@@ -2428,10 +2431,40 @@ hookDropdown = manageBox:Dropdown({
 
 local promptForUrl
 
-manageBox:Button({
-	Text = "Add Webhook",
-	Callback = function() promptForUrl() end,
+local FIELD_METHODS = { "Input", "Textbox", "TextBox", "Field", "Text", "Entry" }
+
+local function buildField(box, options)
+	for _, name in ipairs(FIELD_METHODS) do
+		local ok, method = pcall(function() return box[name] end)
+
+		if ok and type(method) == "function" then
+			local fine, element = pcall(method, box, options)
+			if fine and type(element) == "table" then return element, name end
+		end
+	end
+
+	return nil
+end
+
+local urlField = buildField(manageBox, {
+	Text = "Webhook URL",
+	Placeholder = "https://discord.com/api/webhooks/...",
+	Default = "",
+	Finished = true,
+	ClearOnFocus = false,
+	Callback = function(value)
+		addHook(value, true)
+	end,
 })
+
+if urlField then
+	manageBox:Label("Paste the url above and press enter.", { Style = "dim" })
+else
+	manageBox:Button({
+		Text = "Add Webhook",
+		Callback = function() promptForUrl() end,
+	})
+end
 
 manageBox:Button({
 	Text = "Test Active",
