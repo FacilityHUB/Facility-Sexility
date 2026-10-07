@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local F       = shared.Facility
 local Library = F.Library
 local Entity  = F.Entity
@@ -408,8 +411,6 @@ local Steal = {
 	Enabled = false,
 	Tiers = {},
 	MinRank = 0,
-	World = true,
-	FromPlots = false,
 	Mode = "Teleport",
 	Priority = "Highest Tier",
 	Return = "Safe Zone",
@@ -460,48 +461,10 @@ local function worldCandidates(out)
 	end
 end
 
-local function plotCandidates(out)
-	for _, record in ipairs(Plots:Scan()) do
-		if not record.Mine then
-			for _, descendant in ipairs(record.Floor:GetDescendants()) do
-				if descendant:IsA("ProximityPrompt") and descendant.Enabled then
-					local node = descendant.Parent
-					local tier = nil
-					local depth = 0
-
-					while node and node ~= record.Floor and depth < 5 do
-						tier = tierOf(node)
-						if tier then break end
-						node = node.Parent
-						depth = depth + 1
-					end
-
-					if tier and tierAllowed(tier) then
-						local position = positionOf(descendant.Parent) or positionOf(node)
-
-						if position then
-							table.insert(out, {
-								Prompt = descendant,
-								Crate = node,
-								Tier = tier or "Unknown",
-								Rank = tier and RARITY_RANK[tier] or 0,
-								Position = position,
-								Source = "plot",
-								Owner = record.Name,
-							})
-						end
-					end
-				end
-			end
-		end
-	end
-end
-
 local function pickTarget()
 	local candidates = {}
 
-	if Steal.World then pcall(worldCandidates, candidates) end
-	if Steal.FromPlots then pcall(plotCandidates, candidates) end
+	pcall(worldCandidates, candidates)
 
 	if #candidates == 0 then return nil end
 
@@ -530,24 +493,25 @@ local function pickTarget()
 end
 
 local StealHook = nil
+local HookMinRank = 0
 
 local function reportSteal(target)
 	Steal.Grabbed = Steal.Grabbed + 1
-	Steal.Last = target.Tier .. (target.Source == "plot" and (" from " .. target.Owner) or "")
+	Steal.Last = target.Tier
 
 	if Steal.Notify then
 		notify("Steal", Steal.Last, "success", 3)
 	end
 
-	if Steal.Hook and StealHook then
+	if Steal.Hook and StealHook and target.Rank >= HookMinRank then
 		pcall(function()
 			StealHook:Embed({
 				Title = "Crate stolen",
 				Color = RARITY_COLORS[target.Tier],
 				Fields = {
 					{ Name = "Tier", Value = target.Tier, Inline = true },
-					{ Name = "Source", Value = target.Source == "plot" and target.Owner or "world", Inline = true },
 					{ Name = "Total", Value = tostring(Steal.Grabbed), Inline = true },
+					{ Name = "Server", Value = tostring(game.JobId):sub(1, 12), Inline = true },
 				},
 				Footer = "Steal From The Rich",
 			})
@@ -1039,18 +1003,6 @@ task.spawn(function()
 end)
 
 onCleanup(function() Scanner.Running = false end)
-
-local function teleportToPlot(entry)
-	local record = entry and entry.Record
-	local floor = record and record.Floor
-
-	if not floor then
-		notify("Scanner", "That plot is gone.", "error", 4)
-		return
-	end
-
-	Game.Teleport(CFrame.new(floor.Position + Vector3.new(0, 8, 0)))
-end
 
 local PLAYER_TEAMS = { "enemy", "friendly", "whitelist" }
 
@@ -1638,11 +1590,11 @@ local Window = Library:Window({
 
 local StealTab   = Window:Tab("Steal", "hand")
 local PlotTab    = Window:Tab("Plot", "box")
-local ScannerTab = Window:Tab("Scanner", "search")
 local VisualsTab = Window:Tab("Visuals", "eye")
 local MovementTab = Window:Tab("Movement", "move")
 local ServerTab  = Window:Tab("Server", "globe")
 local MiscTab    = Window:Tab("Misc", "wrench")
+local HookTab    = Window:Tab("Webhooks", "send")
 local Settings   = Window:Tab("Settings", "cog")
 
 local statusBox = StealTab:Section("Status", 1)
@@ -1749,22 +1701,6 @@ autoBox:Dropdown({
 
 autoBox:Label("Reach widens the prompt instead of teleporting. Quieter, but some servers check distance.", { Style = "dim" })
 
-local sourceBox = StealTab:Section("Sources", 1)
-
-sourceBox:Toggle({
-	Text = "World Crates",
-	Flag = "steal_world",
-	Default = true,
-	Callback = function(state) Steal.World = state end,
-})
-
-sourceBox:Toggle({
-	Text = "Other Players' Plots",
-	Flag = "steal_plots",
-	Default = false,
-	Callback = function(state) Steal.FromPlots = state end,
-})
-
 local timingBox = StealTab:Section("Timing", 2)
 
 timingBox:Dropdown({
@@ -1808,13 +1744,6 @@ alertBox:Toggle({
 	Flag = "steal_notify",
 	Default = true,
 	Callback = function(state) Steal.Notify = state end,
-})
-
-alertBox:Toggle({
-	Text = "Webhook On Steal",
-	Flag = "steal_webhook",
-	Default = false,
-	Callback = function(state) Steal.Hook = state end,
 })
 
 alertBox:Button({
@@ -2012,13 +1941,6 @@ defenseBox:Toggle({
 	Callback = function(state) Defense.Notify = state end,
 })
 
-defenseBox:Toggle({
-	Text = "Webhook",
-	Flag = "defense_webhook",
-	Default = false,
-	Callback = function(state) Defense.Hook = state end,
-})
-
 local travelBox = PlotTab:Section("Travel", 1)
 
 travelBox:Button({
@@ -2058,187 +1980,6 @@ travelBox:Button({
 		notify("Plots", string.format("%d plots found.", #Plots.List), "success", 4)
 	end,
 })
-
-local rankBox = ScannerTab:Section("Richest Plots", "full")
-
-local rankCounter = rankBox:Label("scanning", { Style = "bright" })
-
-local rankTable = rankBox:Table({
-	Columns = { "Owner", "Crates", "Best", "Score", "Studs" },
-	MaxRows = 12,
-	EmptyText = "No plot loaded yet",
-})
-
-local function rowText(index, entry)
-	if not entry then return "-" end
-
-	return string.format("%d. %s  %d crate%s  best %s  score %d",
-		index,
-		entry.Name .. (entry.Mine and " (you)" or ""),
-		entry.Count,
-		entry.Count == 1 and "" or "s",
-		entry.Best or "none",
-		entry.Score)
-end
-
-local function plotChoices()
-	local names = {}
-
-	for index, entry in ipairs(Scanner.Ranked) do
-		if not entry.Mine then
-			table.insert(names, string.format("%d. %s (%d)", index, entry.Name, entry.Count))
-		end
-	end
-
-	if #names == 0 then table.insert(names, "no plot loaded") end
-
-	return names
-end
-
-local function entryForChoice(choice)
-	local index = tonumber(tostring(choice or ""):match("^(%d+)%."))
-	if not index then return nil end
-	return Scanner.Ranked[index]
-end
-
-task.spawn(function()
-	local shownCount = nil
-
-	while true do
-		task.wait(1)
-
-		local rows = {}
-		local root = Game.Root()
-		local origin = root and root.Position or Vector3.zero
-
-		for index, entry in ipairs(Scanner.Ranked) do
-			if index > 12 then break end
-
-			local floor = entry.Record.Floor
-			local distance = floor and string.format("%d", (floor.Position - origin).Magnitude) or "-"
-
-			table.insert(rows, {
-				entry.Name .. (entry.Mine and " (you)" or ""),
-				tostring(entry.Count),
-				entry.Best or "-",
-				tostring(entry.Score),
-				distance,
-				Style = entry.Mine and "dim" or (entry.BestRank >= 8 and "warning" or nil),
-			})
-		end
-
-		pcall(function() rankTable:SetRows(rows) end)
-
-		local counter = string.format("%d plots  ·  refresh every %.0fs", #Scanner.Ranked, Scanner.Interval)
-
-		if counter ~= shownCount then
-			shownCount = counter
-			pcall(function() rankCounter:Set(counter) end)
-		end
-	end
-end)
-
-local scannerBox = ScannerTab:Section("Controls", 1)
-
-local plotDropdown = scannerBox:Dropdown({
-	Text = "Plot",
-	Flag = "scanner_plot",
-	Options = plotChoices(),
-	Default = "no plot loaded",
-	Callback = function() end,
-})
-
-scannerBox:Button({
-	Text = "Refresh Plot List",
-	Callback = function()
-		Plots:Scan(true)
-		rankPlots()
-		pcall(function() plotDropdown:SetOptions(plotChoices()) end)
-	end,
-})
-
-scannerBox:Button({
-	Text = "Teleport To Selected",
-	Callback = function()
-		local entry = entryForChoice(Library.Flags["scanner_plot"])
-
-		if not entry then
-			notify("Scanner", "Pick a plot, refresh the list if it is empty.", "warning", 5)
-			return
-		end
-
-		teleportToPlot(entry)
-	end,
-})
-
-scannerBox:Slider({
-	Text = "Refresh Interval",
-	Flag = "scanner_interval",
-	Min = 1, Max = 15, Default = 2,
-	Decimals = 1,
-	Suffix = " s",
-	Callback = function(value) Scanner.Interval = tonumber(value) or 2 end,
-})
-
-scannerBox:Button({
-	Text = "Teleport To Richest",
-	Callback = function()
-		for _, entry in ipairs(Scanner.Ranked) do
-			if not entry.Mine and entry.Count > 0 then
-				Scanner.Cursor = 1
-				teleportToPlot(entry)
-				return
-			end
-		end
-
-		notify("Scanner", "No loaded plot has crates on it.", "warning", 5)
-	end,
-})
-
-scannerBox:Button({
-	Text = "Teleport To Next Plot",
-	Callback = function()
-		local pool = {}
-
-		for _, entry in ipairs(Scanner.Ranked) do
-			if not entry.Mine then table.insert(pool, entry) end
-		end
-
-		if #pool == 0 then
-			notify("Scanner", "No other plot found.", "warning", 5)
-			return
-		end
-
-		Scanner.Cursor = (Scanner.Cursor % #pool) + 1
-		teleportToPlot(pool[Scanner.Cursor])
-	end,
-})
-
-scannerBox:Button({
-	Text = "Copy Ranking",
-	Callback = function()
-		if type(setclipboard) ~= "function" then
-			notify("Scanner", "This executor has no setclipboard.", "error", 5)
-			return
-		end
-
-		local lines = {}
-
-		for index, entry in ipairs(Scanner.Ranked) do
-			table.insert(lines, rowText(index, entry))
-		end
-
-		pcall(setclipboard, table.concat(lines, "\n"))
-		notify("Scanner", "Ranking copied.", "success", 3)
-	end,
-})
-
-task.spawn(function()
-	while true do
-		task.wait(8)
-		pcall(function() plotDropdown:SetOptions(plotChoices()) end)
-	end
-end)
 
 local crateEspBox = VisualsTab:Section("Crate Esp", 1)
 
@@ -2727,137 +2468,311 @@ perfBox:Slider({
 	end,
 })
 
-local hookBox = MiscTab:Section("Webhook", 1)
+local HOOK_FILE = "Facility/steal_webhooks.json"
 
-local HOOK_FILE = "Facility/steal_webhook.txt"
+local Hooks = {
+	List = {},
+	Active = nil,
+	Index = 0,
+}
 
-local hookLabel = hookBox:Label("no url set", { Style = "dim" })
+local hookBox = HookTab:Section("Saved Webhooks", "full")
 
-local function setHookUrl(url, quiet)
-	url = tostring(url or ""):gsub("^%s+", ""):gsub("%s+$", "")
+local hookStatus = hookBox:Label("no webhook saved", { Style = "bright" })
 
-	if url == "" then
-		StealHook = nil
-		pcall(function() hookLabel:Set("no url set") end)
-		return false
+local hookTable = hookBox:Table({
+	Columns = { "#", "Id", "Added" },
+	MaxRows = 10,
+	EmptyText = "Add one from your clipboard",
+})
+
+local function hookId(url)
+	return tostring(url):match("/webhooks/(%d+)") or "unknown"
+end
+
+local function hookChoices()
+	local names = {}
+
+	for index, entry in ipairs(Hooks.List) do
+		table.insert(names, string.format("%d. %s", index, entry.Name))
 	end
 
-	if not url:match("^https://[%w%.%-]*discord") then
-		if not quiet then notify("Webhook", "That does not look like a Discord webhook url.", "error", 6) end
+	if #names == 0 then table.insert(names, "no webhook saved") end
+
+	return names
+end
+
+local function validUrl(url)
+	url = tostring(url or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+	if not url:match("^https://[%w%.%-]*discord") then return nil end
+	if not url:match("/webhooks/%d+/") then return nil end
+
+	return url
+end
+
+local function saveHooks()
+	if type(writefile) ~= "function" then return end
+
+	pcall(function()
+		writefile(HOOK_FILE, HttpService:JSONEncode(Hooks.List))
+	end)
+end
+
+local hookDropdown
+
+local function refreshHookUi()
+	local rows = {}
+
+	for index, entry in ipairs(Hooks.List) do
+		table.insert(rows, {
+			tostring(index),
+			entry.Id,
+			entry.Added or "-",
+			Style = index == Hooks.Index and "warning" or nil,
+		})
+	end
+
+	pcall(function() hookTable:SetRows(rows) end)
+
+	local text
+
+	if #Hooks.List == 0 then
+		text = "no webhook saved"
+	elseif Hooks.Active then
+		text = string.format("%d saved  ·  active %s", #Hooks.List, Hooks.List[Hooks.Index].Name)
+	else
+		text = string.format("%d saved  ·  none selected", #Hooks.List)
+	end
+
+	pcall(function() hookStatus:Set(text) end)
+
+	if hookDropdown then
+		pcall(function() hookDropdown:SetOptions(hookChoices()) end)
+	end
+end
+
+local function selectHook(index)
+	index = tonumber(index) or 0
+
+	local entry = Hooks.List[index]
+
+	if not entry then
+		Hooks.Active = nil
+		Hooks.Index = 0
+		StealHook = nil
+		refreshHookUi()
 		return false
 	end
 
 	if not Webhook then
-		if not quiet then notify("Webhook", "The webhook library is not loaded.", "error", 6) end
+		notify("Webhooks", "The webhook library is not loaded.", "error", 6)
 		return false
 	end
 
-	local ok, result = pcall(function()
-		return Webhook.new(url, { Username = "Facility" })
+	local ok, built = pcall(function()
+		return Webhook.new(entry.Url, { Username = "Facility" })
 	end)
 
-	if not ok or type(result) ~= "table" then
-		StealHook = nil
-		if not quiet then notify("Webhook", tostring(result), "error", 8) end
+	if not ok or type(built) ~= "table" then
+		notify("Webhooks", tostring(built), "error", 8)
 		return false
 	end
 
-	StealHook = result
+	Hooks.Active = built
+	Hooks.Index = index
+	StealHook = built
 
-	pcall(function() hookLabel:Set("url loaded  ·  " .. tostring(#url) .. " chars") end)
+	refreshHookUi()
 
 	return true
 end
 
-hookBox:Button({
-	Text = "Load URL From Clipboard",
+local function addHook(url)
+	url = validUrl(url)
+
+	if not url then
+		notify("Webhooks", "That is not a Discord webhook url.", "error", 6)
+		return false
+	end
+
+	for index, entry in ipairs(Hooks.List) do
+		if entry.Url == url then
+			selectHook(index)
+			notify("Webhooks", "Already saved, selected it.", "warning", 4)
+			return true
+		end
+	end
+
+	local id = hookId(url)
+
+	table.insert(Hooks.List, {
+		Url = url,
+		Id = "..." .. id:sub(-6),
+		Name = "hook " .. id:sub(-6),
+		Added = os.date("%H:%M"),
+	})
+
+	saveHooks()
+	selectHook(#Hooks.List)
+
+	notify("Webhooks", "Saved and selected.", "success", 4)
+
+	return true
+end
+
+local function loadHooks()
+	if type(readfile) ~= "function" or type(isfile) ~= "function" then return end
+
+	local ok, raw = pcall(function()
+		if isfile(HOOK_FILE) then return readfile(HOOK_FILE) end
+		return nil
+	end)
+
+	if not ok or type(raw) ~= "string" then return end
+
+	local fine, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+	if not fine or type(decoded) ~= "table" then return end
+
+	for _, entry in ipairs(decoded) do
+		if type(entry) == "table" and validUrl(entry.Url) then
+			table.insert(Hooks.List, {
+				Url = entry.Url,
+				Id = entry.Id or ("..." .. hookId(entry.Url):sub(-6)),
+				Name = entry.Name or ("hook " .. hookId(entry.Url):sub(-6)),
+				Added = entry.Added or "-",
+			})
+		end
+	end
+end
+
+local manageBox = HookTab:Section("Manage", 1)
+
+hookDropdown = manageBox:Dropdown({
+	Text = "Active",
+	Flag = "hook_active",
+	Options = hookChoices(),
+	Default = "no webhook saved",
+	Callback = function(value)
+		local index = tonumber(tostring(value or ""):match("^(%d+)%."))
+		if index then selectHook(index) end
+	end,
+})
+
+manageBox:Button({
+	Text = "Add From Clipboard",
 	Callback = function()
-		local reader = getclipboard or toclipboard or Clipboard and Clipboard.get
+		local reader = getclipboard or toclipboard
 
 		if type(reader) ~= "function" then
-			notify("Webhook", "This executor has no clipboard reader, use the saved file instead.", "error", 8)
+			notify("Webhooks", "This executor has no clipboard reader.", "error", 8)
 			return
 		end
 
 		local ok, value = pcall(reader)
 
 		if not ok or type(value) ~= "string" then
-			notify("Webhook", "Could not read the clipboard.", "error", 6)
+			notify("Webhooks", "Could not read the clipboard.", "error", 6)
 			return
 		end
 
-		if setHookUrl(value) then
-			if type(writefile) == "function" then
-				pcall(writefile, HOOK_FILE, value)
-			end
-
-			notify("Webhook", "Url saved.", "success", 4)
-		end
+		addHook(value)
 	end,
 })
 
-hookBox:Button({
-	Text = "Reload Saved URL",
+manageBox:Button({
+	Text = "Test Active",
 	Callback = function()
-		if type(readfile) ~= "function" or type(isfile) ~= "function" then
-			notify("Webhook", "This executor has no file access.", "error", 6)
-			return
-		end
-
-		local ok, value = pcall(function()
-			if isfile(HOOK_FILE) then return readfile(HOOK_FILE) end
-			return nil
-		end)
-
-		if not ok or type(value) ~= "string" then
-			notify("Webhook", "No url saved at " .. HOOK_FILE, "warning", 8)
-			return
-		end
-
-		if setHookUrl(value) then notify("Webhook", "Url loaded.", "success", 4) end
-	end,
-})
-
-hookBox:Button({
-	Text = "Clear URL",
-	Callback = function()
-		setHookUrl(nil)
-		if type(delfile) == "function" then pcall(delfile, HOOK_FILE) end
-		notify("Webhook", "Url cleared.", "success", 3)
-	end,
-})
-
-hookBox:Button({
-	Text = "Test Webhook",
-	Callback = function()
-		if not StealHook then
-			notify("Webhook", "Load a url first.", "error", 5)
+		if not Hooks.Active then
+			notify("Webhooks", "Select a webhook first.", "error", 5)
 			return
 		end
 
 		pcall(function()
-			StealHook:Embed({
+			Hooks.Active:Embed({
 				Title = "Facility connected",
 				Description = "Steal From The Rich",
 				Color = Color3.fromRGB(90, 200, 255),
+				Footer = "hook " .. tostring(Hooks.Index),
 			})
 		end)
 
-		notify("Webhook", "Test sent.", "success", 3)
+		notify("Webhooks", "Test sent.", "success", 3)
 	end,
 })
+
+manageBox:Button({
+	Text = "Remove Active",
+	Callback = function()
+		if Hooks.Index == 0 then
+			notify("Webhooks", "Nothing selected.", "error", 5)
+			return
+		end
+
+		table.remove(Hooks.List, Hooks.Index)
+		saveHooks()
+
+		Hooks.Active = nil
+		Hooks.Index = 0
+		StealHook = nil
+
+		refreshHookUi()
+		notify("Webhooks", "Removed.", "success", 3)
+	end,
+})
+
+manageBox:Button({
+	Text = "Clear All",
+	Callback = function()
+		table.clear(Hooks.List)
+
+		Hooks.Active = nil
+		Hooks.Index = 0
+		StealHook = nil
+
+		if type(delfile) == "function" then pcall(delfile, HOOK_FILE) end
+
+		refreshHookUi()
+		notify("Webhooks", "All webhooks cleared.", "success", 3)
+	end,
+})
+
+local eventBox = HookTab:Section("Events", 2)
+
+eventBox:Toggle({
+	Text = "On Steal",
+	Flag = "steal_webhook",
+	Default = false,
+	Callback = function(state) Steal.Hook = state end,
+})
+
+eventBox:Dropdown({
+	Text = "Min Tier For Steal Alert",
+	Flag = "hook_min_tier",
+	Options = RARITY_CHOICES,
+	Default = RARITY_CHOICES[1],
+	Callback = function(value)
+		HookMinRank = RARITY_RANK[tostring(value)] or 0
+	end,
+})
+
+eventBox:Toggle({
+	Text = "On Intruder",
+	Flag = "defense_webhook",
+	Default = false,
+	Callback = function(state) Defense.Hook = state end,
+})
+
+eventBox:Label("Alerts go to the active webhook above.", { Style = "dim" })
 
 task.spawn(function()
 	task.wait(1)
 
-	if type(readfile) ~= "function" or type(isfile) ~= "function" then return end
+	pcall(loadHooks)
 
-	local ok, value = pcall(function()
-		if isfile(HOOK_FILE) then return readfile(HOOK_FILE) end
-		return nil
-	end)
+	if #Hooks.List > 0 then selectHook(1) end
 
-	if ok and type(value) == "string" then setHookUrl(value, true) end
+	refreshHookUi()
 end)
 
 local hudPanel = Library:Panel({
