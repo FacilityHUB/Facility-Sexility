@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local FH      = shared.Facility
 local Library = FH.Library
 local Webhook = FH.Webhook
@@ -3247,7 +3250,7 @@ local Window = Library:Window({
 	Height            = 600,
 	MinWidth          = 620,
 	SectionTitleStyle = "border",
-	TabStyle = "side"
+	TabStyle = "side",
 	MobileButton      = true,
 })
 
