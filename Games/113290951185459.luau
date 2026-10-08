@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local FH      = shared.Facility
 local Library = FH.Library
 local Webhook = FH.Webhook
@@ -3341,9 +3344,8 @@ U.collectBox:Slider({
 	Suffix = " money",
 	Callback = function(value) F.collectMin = tonumber(value) or 0 end,
 })
-	:Gear(function(panel)
-		panel:Label("Skips slots holding less than this, fewer remote calls.", { Style = "dim" })
-	end)
+
+U.collectBox:Label("Skips slots holding less than this, fewer remote calls.", { Style = "dim" })
 
 U.collectBox:Button({
 	Text = "Collect Now",
@@ -3560,9 +3562,8 @@ U.slotBox:Dropdown({
 	Empty = "None locked",
 	Callback = function(selected) F.lockedSlots = H.selectionSet(selected) end,
 })
-	:Gear(function(panel)
-		panel:Label("Auto place and auto level up never touch a locked slot.", { Style = "dim" })
-	end)
+
+U.slotBox:Label("Auto place and auto level up never touch a locked slot.", { Style = "dim" })
 
 U.invBox = U.InvTab:Section("Owned Units", "full")
 
@@ -3683,9 +3684,8 @@ U.upgradeBox:Dropdown({
 	Empty = "Cheapest first",
 	Callback = function(selected) F.upgradeOrder = H.selectionSet(selected) end,
 })
-	:Gear(function(panel)
-		panel:Label("Picked categories are bought before the rest, in the order you select them.", { Style = "dim" })
-	end)
+
+U.upgradeBox:Label("Picked categories are bought before the rest, in the order you select them.", { Style = "dim" })
 
 U.upgradeBox:Slider({
 	Text = "Money Reserve",
@@ -3737,9 +3737,8 @@ U.sellBox:Dropdown({
 	Default = "Chance",
 	Callback = function(value) F.sellMode = tostring(value) end,
 })
-	:Gear(function(panel)
-		panel:Label("Chance uses the threshold. Grade, Trait and Mutation use their list. Any Match sells on any hit. Keep Listed sells everything except the listed grades, traits and mutations.", { Style = "dim" })
-	end)
+
+U.sellBox:Label("Chance uses the threshold. Grade, Trait and Mutation use their list. Any Match sells on any hit. Keep Listed sells everything except the listed grades, traits and mutations.", { Style = "dim" })
 
 U.sellBox:Dropdown({
 	Text = "Grades",
@@ -4364,9 +4363,8 @@ U.serverBox:Button({
 		notify("Server Hop", "Visited list cleared.", "success", 3)
 	end,
 })
-	:Gear(function(panel)
-		panel:Label("Hopping remembers the servers you came from for 45 minutes so you do not loop.", { Style = "dim" })
-	end)
+
+U.serverBox:Label("Hopping remembers the servers you came from for 45 minutes so you do not loop.", { Style = "dim" })
 
 U.browserBox = U.MiscTab:Section("Browser", 2)
 
