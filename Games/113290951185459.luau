@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local FH      = shared.Facility
 local Library = FH.Library
 local Webhook = FH.Webhook
@@ -40,6 +37,7 @@ local Stats = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 
 local Alive = true
+local H = {}
 local cleanupTasks = {}
 
 local function onCleanup(fn)
@@ -242,7 +240,7 @@ local function getFn(service, name)
 	return nil
 end
 
-local function buyUpgradeSig()
+function H.buyUpgradeSig()
 	if Sig.BuyUpgrade then return Sig.BuyUpgrade end
 
 	local ok, signal = pcall(function()
@@ -262,12 +260,12 @@ local function money()
 	return ok and (tonumber(value) or 0) or 0
 end
 
-local function rebirthCount()
+function H.rebirthCount()
 	local ok, value = pcall(function() return G.DC.Rebirth() end)
 	return ok and (tonumber(value) or 0) or 0
 end
 
-local function rollCount()
+function H.rollCount()
 	local ok, value = pcall(function() return G.DC.Rolls() end)
 	return ok and (tonumber(value) or 0) or 0
 end
@@ -291,26 +289,26 @@ local function invEntry(key)
 	return inventory()[key]
 end
 
-local function equippedKey()
+function H.equippedKey()
 	local ok, value = pcall(function() return G.UnitController.EquippedUnit() end)
 	return ok and value or nil
 end
 
-local function entryConfig(name)
+function H.entryConfig(name)
 	local ok, cfg = pcall(function() return G.EntryRegistry.getEntryConfig(name) end)
 	return ok and cfg or nil
 end
 
 local function isUnitEntry(entry)
 	if not entry or type(entry) ~= "table" or not entry.name then return false end
-	local cfg = entryConfig(entry.name)
+	local cfg = H.entryConfig(entry.name)
 	return cfg ~= nil and cfg.kind == "Unit"
 end
 
 local function unitChance(entry)
 	if not entry or type(entry) ~= "table" then return 0 end
 
-	local cfg = entryConfig(entry.name)
+	local cfg = H.entryConfig(entry.name)
 	if not cfg or cfg.kind ~= "Unit" then return 0 end
 
 	local ok, chance = pcall(function() return cfg.chance(entry.attributes) end)
@@ -340,7 +338,7 @@ local function parseCompact(text)
 	return number * (mult[suffix] or 1)
 end
 
-local function currencyAmount(name)
+function H.currencyAmount(name)
 	local total = 0
 
 	for _, entry in pairs(inventory()) do
@@ -352,14 +350,14 @@ local function currencyAmount(name)
 	return total
 end
 
-local function unlockedSlots()
+function H.unlockedSlots()
 	local list = {}
 	local data = slotData()
 	local maxSlots = 14
 
 	pcall(function() maxSlots = G.PlotConfig.GetMaxSlots() end)
 
-	local rb = rebirthCount()
+	local rb = H.rebirthCount()
 
 	for index = 1, maxSlots do
 		local required = 0
@@ -370,7 +368,7 @@ local function unlockedSlots()
 	return list, data
 end
 
-local function slotLocked(slot)
+function H.slotLocked(slot)
 	for _, value in ipairs(F.lockedSlots) do
 		if tostring(value) == tostring(slot) then return true end
 	end
@@ -388,7 +386,7 @@ local function placedUnitKeys()
 	return out
 end
 
-local function towerTeamKeys()
+function H.towerTeamKeys()
 	local out = {}
 
 	pcall(function()
@@ -398,7 +396,7 @@ local function towerTeamKeys()
 	return out
 end
 
-local function waitVerify(fn, timeout)
+function H.waitVerify(fn, timeout)
 	timeout = timeout or 3
 	local waited = 0
 
@@ -412,7 +410,7 @@ local function waitVerify(fn, timeout)
 	return false
 end
 
-local function orderedNames(module)
+function H.orderedNames(module)
 	local list = {}
 
 	if type(module) == "table" then
@@ -428,7 +426,7 @@ local function orderedNames(module)
 	return list
 end
 
-local function mutationNames()
+function H.mutationNames()
 	local list = {}
 
 	if type(G.Mutations) == "table" then
@@ -442,21 +440,19 @@ local function mutationNames()
 	return list
 end
 
-local function gradeRank(name)
+function H.gradeRank(name)
 	if not name or not G.GradesMod then return 0 end
 	local def = G.GradesMod[name]
 	return (type(def) == "table" and tonumber(def.order)) or 0
 end
 
-local function traitRank(name)
+function H.traitRank(name)
 	if not name or not G.TraitsMod then return 0 end
 	local def = G.TraitsMod[name]
 	return (type(def) == "table" and tonumber(def.order)) or 0
 end
 
-local activePotions
-
-local function potionLeft(entry)
+function H.potionLeft(entry)
 	if not entry or type(entry) ~= "table" then return 0 end
 
 	if type(entry.startedAt) == "number" and type(entry.remaining) == "number" then
@@ -474,7 +470,7 @@ local function potionLeft(entry)
 	return 1e9
 end
 
-function activePotions()
+function H.activePotions()
 	local out = {}
 
 	local ok, entries = pcall(function() return G.DC.ActiveEntries() end)
@@ -482,7 +478,7 @@ function activePotions()
 
 	for name, entry in pairs(entries) do
 		if type(entry) == "table" then
-			local left = potionLeft(entry)
+			local left = H.potionLeft(entry)
 			if left > 3 then out[name] = left end
 		elseif entry then
 			out[name] = 1e9
@@ -492,7 +488,7 @@ function activePotions()
 	return out
 end
 
-local function durationText(seconds)
+function H.durationText(seconds)
 	seconds = math.floor(tonumber(seconds) or 0)
 
 	if seconds >= 1e8 then return "active" end
@@ -502,7 +498,7 @@ local function durationText(seconds)
 	return seconds .. "s"
 end
 
-local function effectiveLuck()
+function H.effectiveLuck()
 	local diceLuck, buff = 1, 1
 
 	pcall(function()
@@ -519,7 +515,7 @@ local function effectiveLuck()
 	return math.max(1, diceLuck) * math.max(1, buff)
 end
 
-local function bestOwnedChance()
+function H.bestOwnedChance()
 	local best = 0
 
 	for _, entry in pairs(inventory()) do
@@ -536,16 +532,16 @@ local SMART_K = 100000
 local smartSellAt, smartLevelAt = 0, 0
 local sellInputText = ""
 
-local function applySmartSell(force)
+function H.applySmartSell(force)
 	if not F.smartSell then return end
 	if not force and os.clock() - smartSellAt < 60 then return end
 
 	smartSellAt = os.clock()
 
 	pcall(function()
-		local luck = effectiveLuck()
+		local luck = H.effectiveLuck()
 		local target = SMART_K * luck
-		local best = bestOwnedChance()
+		local best = H.bestOwnedChance()
 
 		if best > 0 then target = math.min(target, best / 2) end
 
@@ -568,14 +564,14 @@ local function applySmartSell(force)
 	end)
 end
 
-local function applySmartLevel(force)
+function H.applySmartLevel(force)
 	if not F.smartLevel then return end
 	if not force and os.clock() - smartLevelAt < 30 then return end
 
 	smartLevelAt = os.clock()
 
 	pcall(function()
-		local list, data = unlockedSlots()
+		local list, data = H.unlockedSlots()
 		local units = {}
 
 		for _, slot in ipairs(list) do
@@ -641,11 +637,11 @@ local function applySmartLevel(force)
 	end)
 end
 
-local function doCollect()
+function H.doCollect()
 	local signal = getSig("PlotService", "CollectBalance")
 	if not signal then return end
 
-	local list, data = unlockedSlots()
+	local list, data = H.unlockedSlots()
 	local threshold = math.max(0, tonumber(F.collectMin) or 0)
 
 	for _, slot in ipairs(list) do
@@ -662,17 +658,17 @@ local function doCollect()
 	end
 end
 
-local function doLevelUp()
+function H.doLevelUp()
 	local signal = getSig("PlotService", "LevelUpSlot")
 	if not signal then return end
 
-	local list, data = unlockedSlots()
+	local list, data = H.unlockedSlots()
 	local candidates = {}
 
 	for _, slot in ipairs(list) do
 		if not F.levelup or not Alive then break end
 
-		if not slotLocked(slot) then
+		if not H.slotLocked(slot) then
 			local entry = data[tostring(slot)]
 			local uid = entry and entry.unitId
 
@@ -708,7 +704,7 @@ local function doLevelUp()
 	end
 end
 
-local function equipUnit(key)
+function H.equipUnit(key)
 	local ok = pcall(function() return G.UnitController.Equip(key) end)
 
 	if ok then
@@ -719,12 +715,12 @@ local function equipUnit(key)
 	return false
 end
 
-local function doPlaceBest()
+function H.doPlaceBest()
 	if Busy.place then return end
 	Busy.place = true
 
 	local ok, err = pcall(function()
-		local list, data = unlockedSlots()
+		local list, data = H.unlockedSlots()
 		local placed, placedKeys = {}, {}
 
 		for _, slot in ipairs(list) do
@@ -741,7 +737,7 @@ local function doPlaceBest()
 		end
 
 		local best, bestChance = nil, 0
-		local equipped = equippedKey()
+		local equipped = H.equippedKey()
 
 		for key, item in pairs(inventory()) do
 			if isUnitEntry(item) and not placedKeys[key] and key ~= equipped then
@@ -755,15 +751,15 @@ local function doPlaceBest()
 		if not best then return end
 
 		for _, slot in ipairs(list) do
-			if not slotLocked(slot) then
+			if not H.slotLocked(slot) then
 				local entry = data[tostring(slot)]
 
 				if not entry or not entry.unitId then
-					if equipUnit(best) then
+					if H.equipUnit(best) then
 						local signal = getSig("PlotService", "InteractSlot")
 						if signal then pcall(function() signal:Fire(slot) end) end
 
-						local ok2 = waitVerify(function()
+						local ok2 = H.waitVerify(function()
 							local fresh = slotData()[tostring(slot)]
 							return fresh and fresh.unitId == best
 						end, 3)
@@ -787,7 +783,7 @@ local function doPlaceBest()
 		local worstSlot, worstChance = nil, nil
 
 		for slot, info in pairs(placed) do
-			if not slotLocked(slot) then
+			if not H.slotLocked(slot) then
 				if not worstChance or info.chance < worstChance then worstSlot, worstChance = slot, info.chance end
 			end
 		end
@@ -799,7 +795,7 @@ local function doPlaceBest()
 
 		pcall(function() signal:Fire(worstSlot) end)
 
-		local emptied = waitVerify(function()
+		local emptied = H.waitVerify(function()
 			local fresh = slotData()[tostring(worstSlot)]
 			return not (fresh and fresh.unitId)
 		end, 3)
@@ -812,10 +808,10 @@ local function doPlaceBest()
 
 		task.wait(0.3)
 
-		if equipUnit(best) then
+		if H.equipUnit(best) then
 			pcall(function() signal:Fire(worstSlot) end)
 
-			local ok3 = waitVerify(function()
+			local ok3 = H.waitVerify(function()
 				local fresh = slotData()[tostring(worstSlot)]
 				return fresh and fresh.unitId == best
 			end, 3)
@@ -843,7 +839,7 @@ local UPGRADE_CATEGORIES = {
 	"Damage", "Sell", "Health", "Walkspeed", "Income",
 }
 
-local function upgradeCategory(name)
+function H.upgradeCategory(name)
 	for _, category in ipairs(UPGRADE_CATEGORIES) do
 		if name:sub(1, #category) == category then return category end
 	end
@@ -854,8 +850,8 @@ end
 local badUpgrades = {}
 local lastUpgradeFail = 0
 
-local function doUpgrades()
-	local signal = buyUpgradeSig()
+function H.doUpgrades()
+	local signal = H.buyUpgradeSig()
 	if not signal or not G.Upgrades or not G.TreeStructure then return end
 
 	local owned = {}
@@ -889,7 +885,7 @@ local function doUpgrades()
 	local filtered = {}
 
 	for _, upgrade in ipairs(list) do
-		local category = upgradeCategory(upgrade.name)
+		local category = H.upgradeCategory(upgrade.name)
 
 		if #F.upgradeCats == 0 then
 			upgrade.category = category
@@ -945,9 +941,9 @@ local function doUpgrades()
 	end
 end
 
-local function doRebirth()
+function H.doRebirth()
 	local nextTier = nil
-	pcall(function() nextTier = G.Rebirths.GetNext(rebirthCount()) end)
+	pcall(function() nextTier = G.Rebirths.GetNext(H.rebirthCount()) end)
 
 	if not nextTier then return end
 
@@ -964,20 +960,20 @@ local function doRebirth()
 	end
 end
 
-local function ownedDice()
+function H.ownedDice()
 	local owned = {}
 	pcall(function() owned = G.DC.OwnedDice() or {} end)
 	return owned
 end
 
-local function currentDice()
+function H.currentDice()
 	local ok, value = pcall(function() return G.DC.Dice() end)
 	return ok and value or nil
 end
 
-local function bestDiceOwned()
-	local owned = ownedDice()
-	local current = currentDice()
+function H.bestDiceOwned()
+	local owned = H.ownedDice()
+	local current = H.currentDice()
 	local all = G.DiceMod and G.DiceMod.GetAll() or {}
 	local best, bestLuck = current, -1
 
@@ -989,7 +985,7 @@ local function bestDiceOwned()
 	return best, current
 end
 
-local function doDice()
+function H.doDice()
 	if Busy.dice then return end
 	Busy.dice = true
 
@@ -1010,7 +1006,7 @@ local function doDice()
 
 			table.sort(ordered, function(a, b) return a.luck > b.luck end)
 
-			local owned = ownedDice()
+			local owned = H.ownedDice()
 
 			for _, def in ipairs(ordered) do
 				if not owned[def.name] and wallet >= def.price then
@@ -1024,7 +1020,7 @@ local function doDice()
 		end
 
 		if F.equipDice then
-			local best, current = bestDiceOwned()
+			local best, current = H.bestDiceOwned()
 
 			if best and best ~= current then
 				local signal = getSig("DiceShopService", "EquipDice")
@@ -1036,12 +1032,12 @@ local function doDice()
 	Busy.dice = false
 end
 
-local function potionKeys()
+function H.potionKeys()
 	local out = {}
 
 	for key, entry in pairs(inventory()) do
 		if type(entry) == "table" and entry.name and (tonumber(entry.amount) or 0) >= 1 then
-			local cfg = entryConfig(entry.name)
+			local cfg = H.entryConfig(entry.name)
 			if cfg and cfg.kind == "Boost" then out[entry.name] = key end
 		end
 	end
@@ -1049,7 +1045,7 @@ local function potionKeys()
 	return out
 end
 
-local function doPotion()
+function H.doPotion()
 	if Busy.potion then return end
 	if not G.BoostConfig or not G.BoostConfig.entries then return end
 
@@ -1059,8 +1055,8 @@ local function doPotion()
 		if #F.potions == 0 then return end
 
 		local entries = G.BoostConfig.entries
-		local have = potionKeys()
-		local active = activePotions()
+		local have = H.potionKeys()
+		local active = H.activePotions()
 		local candidates = {}
 
 		for _, name in ipairs(F.potions) do
@@ -1127,7 +1123,7 @@ end
 
 local protectedKeys = {}
 
-local function loadProtected()
+function H.loadProtected()
 	local data = readJson(userFile("protected"))
 	if type(data) ~= "table" then return end
 
@@ -1136,15 +1132,15 @@ local function loadProtected()
 	end
 end
 
-local function saveProtected()
+function H.saveProtected()
 	local list = {}
 	for key in pairs(protectedKeys) do table.insert(list, key) end
 	writeJson(userFile("protected"), list)
 end
 
-loadProtected()
+H.loadProtected()
 
-local function setContains(set, value)
+function H.setContains(set, value)
 	if not value then return false end
 
 	for _, name in ipairs(set) do
@@ -1154,16 +1150,16 @@ local function setContains(set, value)
 	return false
 end
 
-local function sellWanted(entry, chance)
+function H.sellWanted(entry, chance)
 	local attributes = entry.attributes or {}
 
 	if F.sellMode == "Chance" then
 		return F.sellThreshold > 0 and chance > 0 and chance < F.sellThreshold
 	end
 
-	local hitGrade = #F.sellGrades > 0 and setContains(F.sellGrades, attributes.grade)
-	local hitTrait = #F.sellTraits > 0 and setContains(F.sellTraits, attributes.trait)
-	local hitMutation = #F.sellMutations > 0 and setContains(F.sellMutations, attributes.mutation)
+	local hitGrade = #F.sellGrades > 0 and H.setContains(F.sellGrades, attributes.grade)
+	local hitTrait = #F.sellTraits > 0 and H.setContains(F.sellTraits, attributes.trait)
+	local hitMutation = #F.sellMutations > 0 and H.setContains(F.sellMutations, attributes.mutation)
 	local hitChance = F.sellThreshold > 0 and chance > 0 and chance < F.sellThreshold
 
 	if F.sellMode == "Grade" then return hitGrade end
@@ -1178,7 +1174,7 @@ local function sellWanted(entry, chance)
 	return hitChance or hitGrade or hitTrait or hitMutation
 end
 
-local function doSell(manual)
+function H.doSell(manual)
 	local fn = getFn("SellService", "SellInventory")
 
 	if not fn then
@@ -1195,8 +1191,8 @@ local function doSell(manual)
 
 	local ok = pcall(function()
 		local inSlot = placedUnitKeys()
-		local inTower = towerTeamKeys()
-		local equipped = equippedKey()
+		local inTower = H.towerTeamKeys()
+		local equipped = H.equippedKey()
 		local candidates = {}
 
 		for key, entry in pairs(inventory()) do
@@ -1204,7 +1200,7 @@ local function doSell(manual)
 				if not (entry.attributes and entry.attributes.locked) and not protectedKeys[key] then
 					local chance = unitChance(entry)
 
-					if sellWanted(entry, chance) then
+					if H.sellWanted(entry, chance) then
 						table.insert(candidates, { key = key, chance = chance })
 					end
 				end
@@ -1238,7 +1234,7 @@ local function doSell(manual)
 	return sold
 end
 
-local function gameProtected(listName, key)
+function H.gameProtected(listName, key)
 	if not key or not G.DC then return false end
 
 	local ok, value = pcall(function()
@@ -1250,7 +1246,7 @@ local function gameProtected(listName, key)
 	return (ok and value) and true or false
 end
 
-local function targetAbove(module, current, wanted)
+function H.targetAbove(module, current, wanted)
 	if not module then return false end
 
 	local currentOrder = 0
@@ -1266,7 +1262,7 @@ end
 
 local rerollNoted = {}
 
-local function rerollTick(kind, manual)
+function H.rerollTick(kind, manual)
 	local isGrade = kind == "grade"
 
 	local module = isGrade and G.GradesMod or G.TraitsMod
@@ -1292,7 +1288,7 @@ local function rerollTick(kind, manual)
 		return
 	end
 
-	if currencyAmount(currency) <= reserve then
+	if H.currencyAmount(currency) <= reserve then
 		local noteKey = kind .. "_currency"
 
 		if os.clock() - (rerollNoted[noteKey] or 0) > 60 then
@@ -1336,7 +1332,7 @@ local function rerollTick(kind, manual)
 						local def = current and module[current]
 
 						if def and def.protected then
-							if targetAbove(module, current, wanted) then
+							if H.targetAbove(module, current, wanted) then
 								pcall(function() signal:Fire(key, true) end)
 								rolled = true
 								clog("Forced past protected " .. attribute .. ": " .. tostring(entry.name)
@@ -1352,7 +1348,7 @@ local function rerollTick(kind, manual)
 									.. " (" .. tostring(current) .. ")")
 							end
 						else
-							if current and gameProtected(protectedList, current) then
+							if current and H.gameProtected(protectedList, current) then
 								pcall(function() signal:Fire(key, true) end)
 								rolled = true
 								clog("Skip-confirmed " .. attribute .. ": " .. tostring(entry.name)
@@ -1384,9 +1380,8 @@ end
 local towerFloor = 1
 local towerRunDrops, towerRunStart = {}, 1
 local smartCapOrder, smartCapUntil = nil, 0
-local sendTowerHook
 
-local function towerRewardsAdd(rewards)
+function H.towerRewardsAdd(rewards)
 	for name, amount in pairs(rewards or {}) do
 		amount = tonumber(amount) or 0
 		Tally.towerRewards[name] = (Tally.towerRewards[name] or 0) + amount
@@ -1399,7 +1394,7 @@ local function towerRewardsAdd(rewards)
 	end
 end
 
-local function handleTowerSeq(sequence, sawAction)
+function H.handleTowerSeq(sequence, sawAction)
 	local done = false
 
 	for _, action in ipairs(sequence) do
@@ -1409,7 +1404,7 @@ local function handleTowerSeq(sequence, sawAction)
 				if towerFloor % 10 == 0 then clog("Tower floor " .. towerFloor) end
 
 			elseif action.action == "floorCompleted" and type(action.rewards) == "table" then
-				towerRewardsAdd(action.rewards)
+				H.towerRewardsAdd(action.rewards)
 
 				for name, amount in pairs(action.rewards) do
 					towerRunDrops[name] = (towerRunDrops[name] or 0) + (tonumber(amount) or 0)
@@ -1431,9 +1426,9 @@ local function handleTowerSeq(sequence, sawAction)
 					smartCapOrder = nil
 					clog("Tower win counted.")
 
-					if F.towerHookOn and sendTowerHook then
+					if F.towerHookOn and H.sendTowerHook then
 						local name, from, to, drops, bonus = F.towerName, towerRunStart, towerFloor, towerRunDrops, action.rewards
-						task.spawn(function() sendTowerHook(name, from, to, drops, bonus, "Cleared") end)
+						task.spawn(function() H.sendTowerHook(name, from, to, drops, bonus, "Cleared") end)
 					end
 				elseif not hasRewards then
 					clog("Tower wiped at floor " .. towerFloor .. ", not counted.")
@@ -1455,7 +1450,7 @@ local function handleTowerSeq(sequence, sawAction)
 	return done
 end
 
-local function towerExitRestart()
+function H.towerExitRestart()
 	local at = math.floor(tonumber(F.towerExitFloor) or 0)
 	if not F.towerExitOn or at <= 0 or towerFloor < at then return false end
 
@@ -1466,9 +1461,9 @@ local function towerExitRestart()
 
 	clog("Tower exit floor " .. towerFloor .. " reached, restarting " .. tostring(F.towerName) .. ".")
 
-	if F.towerHookOn and sendTowerHook then
+	if F.towerHookOn and H.sendTowerHook then
 		local name, from, to, drops = F.towerName, towerRunStart, towerFloor, towerRunDrops
-		task.spawn(function() sendTowerHook(name, from, to, drops, nil, "Exited") end)
+		task.spawn(function() H.sendTowerHook(name, from, to, drops, nil, "Exited") end)
 	end
 
 	towerFloor = 1
@@ -1476,7 +1471,7 @@ local function towerExitRestart()
 	return true
 end
 
-local function driveTower(step)
+function H.driveTower(step)
 	local done, fails = false, 0
 
 	while F.tower and Alive and not done do
@@ -1493,8 +1488,8 @@ local function driveTower(step)
 					if type(action) == "table" and action.action ~= "ended" then saw = true break end
 				end
 
-				done = handleTowerSeq(sequence, saw)
-				if not done and towerExitRestart() then done = true end
+				done = H.handleTowerSeq(sequence, saw)
+				if not done and H.towerExitRestart() then done = true end
 			else
 				task.wait(0.25)
 			end
@@ -1509,7 +1504,7 @@ local function driveTower(step)
 	end
 end
 
-local function towerMults()
+function H.towerMults()
 	local damage, health = 1, 1
 
 	pcall(function()
@@ -1544,7 +1539,7 @@ local function towerMults()
 	pcall(function()
 		if not (G.BoostConfig and G.BoostConfig.entries) then return end
 
-		local active = activePotions()
+		local active = H.activePotions()
 		local bestDamage, bestHealth = {}, {}
 
 		for name in pairs(active) do
@@ -1576,7 +1571,7 @@ local function towerMults()
 	return damage, health
 end
 
-local function towerTeamMembers(damageMult, healthMult)
+function H.towerTeamMembers(damageMult, healthMult)
 	local members = {}
 
 	local ok, team = pcall(function() return G.DC.TowerTeam() end)
@@ -1586,7 +1581,7 @@ local function towerTeamMembers(damageMult, healthMult)
 		local entry = invEntry(key)
 
 		if entry and entry.attributes then
-			local cfg = entryConfig(entry.name)
+			local cfg = H.entryConfig(entry.name)
 
 			if cfg then
 				local health, damage = 0, 0
@@ -1605,7 +1600,7 @@ local function towerTeamMembers(damageMult, healthMult)
 	return members
 end
 
-local function simTower(ref, members)
+function H.simTower(ref, members)
 	local maxFloors = 100
 	pcall(function() maxFloors = ref.maxFloors or 100 end)
 
@@ -1665,7 +1660,7 @@ local function simTower(ref, members)
 	return reach, score
 end
 
-local function towerNames()
+function H.towerNames()
 	local list = {}
 
 	pcall(function()
@@ -1687,11 +1682,11 @@ local function towerNames()
 	return list
 end
 
-local function smartTowerPick()
+function H.smartTowerPick()
 	if not G.TowersMod then return F.towerName, nil end
 
-	local damageMult, healthMult = towerMults()
-	local members = towerTeamMembers(damageMult, healthMult)
+	local damageMult, healthMult = H.towerMults()
+	local members = H.towerTeamMembers(damageMult, healthMult)
 
 	if #members == 0 then return F.towerName, nil end
 
@@ -1719,7 +1714,7 @@ local function smartTowerPick()
 		if cap and order > cap then
 			table.insert(detail, candidate.name .. "=capped")
 		else
-			local reach, score = simTower(candidate.ref, members)
+			local reach, score = H.simTower(candidate.ref, members)
 
 			if (Tally.towerWins[candidate.name] or 0) > 0 then
 				local maxFloors = 100
@@ -1759,13 +1754,13 @@ end
 
 local towerDropdown = nil
 
-local function syncTowerDropdown()
+function H.syncTowerDropdown()
 	if not towerDropdown then return end
 	pcall(function() towerDropdown:Set(F.towerName, true) end)
 end
 
-local function runSmartTower()
-	local pick, info = smartTowerPick()
+function H.runSmartTower()
+	local pick, info = H.smartTowerPick()
 
 	if pick and pick ~= F.towerName then
 		F.towerName = pick
@@ -1776,10 +1771,10 @@ local function runSmartTower()
 		clog("Smart tower: no team found, keeping " .. tostring(F.towerName))
 	end
 
-	syncTowerDropdown()
+	H.syncTowerDropdown()
 end
 
-local function doTowerLoop()
+function H.doTowerLoop()
 	if Busy.tower then return end
 	Busy.tower = true
 
@@ -1799,7 +1794,7 @@ local function doTowerLoop()
 			task.wait(0.5)
 		end
 
-		if F.smartTower then runSmartTower() end
+		if F.smartTower then H.runSmartTower() end
 
 		local okStart, started = pcall(play, F.towerName)
 
@@ -1807,7 +1802,7 @@ local function doTowerLoop()
 			clog("Tower started: " .. F.towerName)
 			towerFloor = 1
 			towerRunDrops, towerRunStart = {}, 1
-			driveTower(step)
+			H.driveTower(step)
 		else
 			local okStep, sequence = pcall(step)
 
@@ -1822,9 +1817,9 @@ local function doTowerLoop()
 					if type(action) == "table" and action.action ~= "ended" then saw = true break end
 				end
 
-				local done = handleTowerSeq(sequence, saw)
-				if not done and towerExitRestart() then done = true end
-				if not done then driveTower(step) end
+				local done = H.handleTowerSeq(sequence, saw)
+				if not done and H.towerExitRestart() then done = true end
+				if not done then H.driveTower(step) end
 			else
 				clog("Tower failed to start: " .. F.towerName .. " (team or cooldown)")
 				task.wait(5)
@@ -1840,7 +1835,7 @@ local function doTowerLoop()
 	Busy.tower = false
 end
 
-local function doRedeemCodes(manual)
+function H.doRedeemCodes(manual)
 	local signal = getSig("MonetizationService", "RedeemCode")
 
 	if not signal then
@@ -1905,7 +1900,7 @@ local function doRedeemCodes(manual)
 	notify("Codes", worked .. " / " .. #queue .. " new codes redeemed.", worked > 0 and "success" or "warning", 5)
 end
 
-local function doClaimQuests()
+function H.doClaimQuests()
 	local signal = getSig("QuestService", "Claim")
 	if not signal or not G.QuestConfig then return end
 
@@ -1945,9 +1940,8 @@ end
 local VISIT_TTL = 2700
 local hopBusy = false
 local lastHopAt = 0
-local doHop
 
-local function loadVisited()
+function H.loadVisited()
 	local out = {}
 	local data = readJson(userFile("visited"))
 	if type(data) ~= "table" then return out end
@@ -1962,7 +1956,7 @@ local function loadVisited()
 	return out
 end
 
-local function saveVisited(visited)
+function H.saveVisited(visited)
 	local list = {}
 	for job, stamp in pairs(visited) do table.insert(list, { job = job, ts = stamp }) end
 
@@ -1983,7 +1977,7 @@ pcall(function()
 	end)
 end)
 
-function doHop(lowPop, isBlocked)
+function H.doHop(lowPop, isBlocked)
 	task.spawn(function()
 		if type(isBlocked) == "function" and isBlocked() then return end
 
@@ -1995,7 +1989,7 @@ function doHop(lowPop, isBlocked)
 		lastHopAt = os.clock()
 		notify("Server Hop", "Searching servers.", "info", 3)
 
-		local visited = loadVisited()
+		local visited = H.loadVisited()
 		local candidates, cursor, pages = {}, nil, 0
 		local order = lowPop and "Asc" or "Desc"
 
@@ -2039,7 +2033,7 @@ function doHop(lowPop, isBlocked)
 
 			visited[myJob] = os.time()
 			if oldest then visited[oldest] = os.time() end
-			saveVisited(visited)
+			H.saveVisited(visited)
 
 			hopBusy = true
 
@@ -2092,7 +2086,7 @@ function doHop(lowPop, isBlocked)
 
 			local server = candidates[index]
 			visited[server.id] = os.time()
-			saveVisited(visited)
+			H.saveVisited(visited)
 
 			notify("Server Hop", "Teleporting, " .. tostring(server.playing) .. " players.", "info", 3)
 
@@ -2141,15 +2135,14 @@ local tradeListener = nil
 local tradeDriving = false
 local tradeActive = false
 local lastTradeEnd = 0
-local sendTradeHook
 
-local function tradeScreenOpen()
+function H.tradeScreenOpen()
 	if inTradeSession then return true end
 	local ok, visible = pcall(function() return G.UIRefs.Root.Trading.TradeScreen.Visible end)
 	return ok and visible and true or false
 end
 
-local function offerCount(offer)
+function H.offerCount(offer)
 	if type(offer) ~= "table" then return 0 end
 
 	local count = 0
@@ -2158,7 +2151,7 @@ local function offerCount(offer)
 	return count
 end
 
-local function offerText(offer)
+function H.offerText(offer)
 	if type(offer) ~= "table" then return "(empty)" end
 
 	local parts = {}
@@ -2199,7 +2192,7 @@ local function offerText(offer)
 	return text
 end
 
-local function tradeEnsureListener()
+function H.tradeEnsureListener()
 	if tradeListener then return end
 
 	local signal = getSig("TradeService", "TradeEvent")
@@ -2247,9 +2240,9 @@ local function tradeEnsureListener()
 					if reason == "Completed" then
 						clog("Trade completed with " .. tostring(tradePartner or "?") .. ".")
 
-						if F.tradeHookOn and sendTradeHook then
+						if F.tradeHookOn and H.sendTradeHook then
 							local partner, own, other = tostring(tradePartner or "?"), tradeOffers.own, tradeOffers.other
-							task.spawn(function() sendTradeHook(partner, own, other, "Completed") end)
+							task.spawn(function() H.sendTradeHook(partner, own, other, "Completed") end)
 						end
 					else
 						clog("Trade ended (" .. reason .. ") with " .. tostring(tradePartner or "?") .. ".")
@@ -2272,28 +2265,28 @@ local function tradeEnsureListener()
 	if not ok then tradeListener = nil end
 end
 
-local function otherMoney(player)
+function H.otherMoney(player)
 	local stats = player:FindFirstChild("leaderstats")
 	local value = stats and stats:FindFirstChild("Money")
 	if not (value and typeof(value.Value) == "string") then return 0 end
 	return parseCompact(value.Value) or 0
 end
 
-local function otherRolls(player)
+function H.otherRolls(player)
 	local stats = player:FindFirstChild("leaderstats")
 	local value = stats and stats:FindFirstChild("Rolls")
 	if value then return tonumber(value.Value) or 0 end
 	return 0
 end
 
-local function tradeTargets()
+function H.tradeTargets()
 	local list = {}
 	if F.tradeMoney <= 0 then return list end
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
-			local amount = otherMoney(player)
-			if amount >= F.tradeMoney and otherRolls(player) >= 1000 then
+			local amount = H.otherMoney(player)
+			if amount >= F.tradeMoney and H.otherRolls(player) >= 1000 then
 				table.insert(list, { player = player, money = amount })
 			end
 		end
@@ -2304,7 +2297,7 @@ local function tradeTargets()
 	return list
 end
 
-local function waitTradeEvent(names, timeout)
+function H.waitTradeEvent(names, timeout)
 	local start = os.clock()
 
 	while os.clock() - start < timeout do
@@ -2316,7 +2309,7 @@ local function waitTradeEvent(names, timeout)
 	return nil
 end
 
-local function driveTrade()
+function H.driveTrade()
 	if tradeDriving then return end
 
 	local advance = getSig("TradeService", "AdvanceTrade")
@@ -2327,12 +2320,12 @@ local function driveTrade()
 	local readyTries, acceptTries = 0, 0
 	local start = os.clock()
 
-	while F.tradeAutoGo and Alive and tradeScreenOpen() and os.clock() - start < 45 do
+	while F.tradeAutoGo and Alive and H.tradeScreenOpen() and os.clock() - start < 45 do
 		local data = tradeEvent.data
 
 		if type(data) == "table" then
 			local minItems = math.max(1, tonumber(F.tradeMinItems) or 1)
-			local enough = (not F.tradeNeedOffer) or offerCount(data.otherOffer) >= minItems
+			local enough = (not F.tradeNeedOffer) or H.offerCount(data.otherOffer) >= minItems
 
 			if data.phase == "Offer" then
 				local ready = data.ownReady and true or false
@@ -2363,14 +2356,14 @@ local function driveTrade()
 
 	tradeDriving = false
 
-	if F.tradeAutoGo and Alive and tradeScreenOpen() and os.clock() - start >= 45 then
+	if F.tradeAutoGo and Alive and H.tradeScreenOpen() and os.clock() - start >= 45 then
 		local cancel = getSig("TradeService", "CancelTrade")
 		if cancel then pcall(function() cancel:Fire() end) end
 		clog("Trade timed out, cancelled.")
 	end
 end
 
-local function tradePlayer(player)
+function H.tradePlayer(player)
 	local request = getSig("TradeService", "RequestTrade")
 	if not request then return false end
 
@@ -2380,7 +2373,7 @@ local function tradePlayer(player)
 		if not F.tradeAuto or not Alive then return false end
 		if not player.Parent then return false end
 
-		if tradeScreenOpen() then
+		if H.tradeScreenOpen() then
 			clog("Trade already open, not requesting " .. player.DisplayName .. ".")
 			return false
 		end
@@ -2391,7 +2384,7 @@ local function tradePlayer(player)
 		Tally.tradesSent = Tally.tradesSent + 1
 		clog("Trade request: " .. player.DisplayName .. " (" .. attempt .. "/" .. tries .. ")")
 
-		local event = waitTradeEvent({
+		local event = H.waitTradeEvent({
 			Started = true, RequestExpired = true, RequestClosed = true, Ended = true,
 		}, 8)
 
@@ -2399,13 +2392,13 @@ local function tradePlayer(player)
 			tradeActive = true
 			tradeEvent.data = nil
 
-			local ended = waitTradeEvent({ Ended = true }, 45)
+			local ended = H.waitTradeEvent({ Ended = true }, 45)
 
 			if ended == nil and F.tradeAuto and Alive then
 				local cancel = getSig("TradeService", "CancelTrade")
 				if cancel then pcall(function() cancel:Fire() end) end
 				clog("Trade timed out after 45s, cancelled: " .. player.DisplayName .. ".")
-				waitTradeEvent({ Ended = true }, 5)
+				H.waitTradeEvent({ Ended = true }, 5)
 			end
 
 			lastTradeEnd = os.clock()
@@ -2426,7 +2419,7 @@ local tradeTried = {}
 local tradeEmptySince = 0
 local tradeWarned = false
 
-local function doTradeLoop()
+function H.doTradeLoop()
 	if Busy.trade then return end
 	Busy.trade = true
 	tradeActive = false
@@ -2436,7 +2429,7 @@ local function doTradeLoop()
 		if enable then enable:Fire(true) end
 	end)
 
-	tradeEnsureListener()
+	H.tradeEnsureListener()
 
 	while F.tradeAuto and Alive do
 		if (tonumber(F.tradeMoney) or 0) <= 0 then
@@ -2453,7 +2446,7 @@ local function doTradeLoop()
 
 		local candidates = {}
 
-		for _, candidate in ipairs(tradeTargets()) do
+		for _, candidate in ipairs(H.tradeTargets()) do
 			if not tradeTried[candidate.player.UserId] then table.insert(candidates, candidate) end
 		end
 
@@ -2462,13 +2455,13 @@ local function doTradeLoop()
 
 			local delay = math.clamp(tonumber(F.tradeHopDelay) or 8, 1, 30)
 
-			if F.tradeHop and not tradeActive and not tradeScreenOpen()
+			if F.tradeHop and not tradeActive and not H.tradeScreenOpen()
 				and os.clock() - lastTradeEnd > delay and os.clock() - tradeEmptySince >= delay then
 				clog("Trade: nobody matches, hopping.")
 				tradeTried = {}
 				tradeEmptySince = 0
 
-				doHop(false, function() return (not F.tradeAuto) or tradeScreenOpen() end)
+				H.doHop(false, function() return (not F.tradeAuto) or H.tradeScreenOpen() end)
 
 				local waited = 0
 				while F.tradeAuto and Alive and waited < 12 do
@@ -2481,11 +2474,11 @@ local function doTradeLoop()
 		else
 			tradeEmptySince = 0
 
-			if tradeScreenOpen() then
+			if H.tradeScreenOpen() then
 				task.wait(3)
 			else
 				local candidate = candidates[1]
-				tradePlayer(candidate.player)
+				H.tradePlayer(candidate.player)
 				tradeTried[candidate.player.UserId] = true
 				task.wait(1)
 			end
@@ -2497,7 +2490,7 @@ local function doTradeLoop()
 	Busy.trade = false
 end
 
-local function stopTrades()
+function H.stopTrades()
 	F.tradeAuto = false
 	F.tradeAutoGo = false
 
@@ -2515,7 +2508,7 @@ end
 
 local fpsRestore, fpsHidden, fpsConnection, fpsKeptPlot = {}, {}, nil, nil
 
-local function fpsDisable(instance)
+function H.fpsDisable(instance)
 	pcall(function()
 		if instance:IsA("ParticleEmitter") or instance:IsA("Trail") or instance:IsA("Beam")
 			or instance:IsA("Smoke") or instance:IsA("Fire") or instance:IsA("Sparkles") then
@@ -2556,7 +2549,7 @@ local function fpsDisable(instance)
 	end)
 end
 
-local function fpsHide(instance)
+function H.fpsHide(instance)
 	pcall(function()
 		if not instance or not instance.Parent then return end
 
@@ -2569,7 +2562,7 @@ local function fpsHide(instance)
 	end)
 end
 
-local function ownPlot()
+function H.ownPlot()
 	local plots = workspace:FindFirstChild("Plots")
 	local claimed = plots and plots:FindFirstChild("Claimed")
 	if not claimed then return nil end
@@ -2616,7 +2609,7 @@ local function ownPlot()
 	return nil
 end
 
-local function isDecor(child)
+function H.isDecor(child)
 	local name = child.Name
 
 	if child:IsA("Model") then
@@ -2629,24 +2622,24 @@ local function isDecor(child)
 	return false
 end
 
-local function stripMap()
+function H.stripMap()
 	for _, name in ipairs({ "Leaderboards", "BestRollPoduium", "Limiteds" }) do
 		pcall(function()
 			local found = workspace:FindFirstChild(name)
-			if found then fpsHide(found) end
+			if found then H.fpsHide(found) end
 		end)
 	end
 
 	pcall(function()
 		local map = workspace:FindFirstChild("Map")
 		local tower = map and map:FindFirstChild("CastleTower")
-		if tower then fpsHide(tower) end
+		if tower then H.fpsHide(tower) end
 	end)
 
 	pcall(function()
 		local plots = workspace:FindFirstChild("Plots")
 		local unclaimed = plots and plots:FindFirstChild("Unclaimed")
-		if unclaimed then fpsHide(unclaimed) end
+		if unclaimed then H.fpsHide(unclaimed) end
 	end)
 
 	pcall(function()
@@ -2654,10 +2647,10 @@ local function stripMap()
 		local claimed = plots and plots:FindFirstChild("Claimed")
 
 		if claimed then
-			fpsKeptPlot = ownPlot()
+			fpsKeptPlot = H.ownPlot()
 
 			for _, plot in ipairs(claimed:GetChildren()) do
-				if plot ~= fpsKeptPlot then fpsHide(plot) end
+				if plot ~= fpsKeptPlot then H.fpsHide(plot) end
 			end
 		end
 	end)
@@ -2667,7 +2660,7 @@ local function stripMap()
 
 		if folder then
 			for _, model in ipairs(folder:GetChildren()) do
-				if model:IsA("Model") and model.Name ~= LocalPlayer.Name then fpsHide(model) end
+				if model:IsA("Model") and model.Name ~= LocalPlayer.Name then H.fpsHide(model) end
 			end
 		end
 	end)
@@ -2689,17 +2682,17 @@ local function stripMap()
 					end
 				end)
 
-				if not keep then fpsHide(child) end
+				if not keep then H.fpsHide(child) end
 			end
 		end
 
 		for _, child in ipairs(map:GetDescendants()) do
-			if isDecor(child) then fpsHide(child) end
+			if H.isDecor(child) then H.fpsHide(child) end
 		end
 	end)
 end
 
-local function setFpsBoost(state)
+function H.setFpsBoost(state)
 	if state then
 		pcall(function()
 			local signal = getSig("SettingsService", "SetSetting")
@@ -2733,11 +2726,11 @@ local function setFpsBoost(state)
 			terrain.Decoration = false
 		end)
 
-		for _, object in ipairs(workspace:GetDescendants()) do fpsDisable(object) end
-		stripMap()
+		for _, object in ipairs(workspace:GetDescendants()) do H.fpsDisable(object) end
+		H.stripMap()
 
 		pcall(function()
-			for _, object in ipairs(Lighting:GetDescendants()) do fpsDisable(object) end
+			for _, object in ipairs(Lighting:GetDescendants()) do H.fpsDisable(object) end
 		end)
 
 		pcall(function()
@@ -2750,16 +2743,16 @@ local function setFpsBoost(state)
 			fpsConnection = workspace.DescendantAdded:Connect(function(object)
 				if not F.fpsOn then return end
 
-				fpsDisable(object)
+				H.fpsDisable(object)
 
 				pcall(function()
 					local parent = object.Parent
 					if not parent then return end
 
 					if parent == workspace:FindFirstChild("Players") then
-						if object:IsA("Model") and object.Name ~= LocalPlayer.Name then fpsHide(object) end
+						if object:IsA("Model") and object.Name ~= LocalPlayer.Name then H.fpsHide(object) end
 					elseif parent.Name == "Claimed" and parent.Parent and parent.Parent.Name == "Plots" then
-						if object ~= fpsKeptPlot then fpsHide(object) end
+						if object ~= fpsKeptPlot then H.fpsHide(object) end
 					end
 				end)
 			end)
@@ -2767,8 +2760,8 @@ local function setFpsBoost(state)
 
 		task.delay(8, function()
 			if F.fpsOn then
-				for _, object in ipairs(workspace:GetDescendants()) do fpsDisable(object) end
-				stripMap()
+				for _, object in ipairs(workspace:GetDescendants()) do H.fpsDisable(object) end
+				H.stripMap()
 			end
 		end)
 
@@ -2796,11 +2789,11 @@ local function setFpsBoost(state)
 	end
 end
 
-onCleanup(function() pcall(setFpsBoost, false) end)
+onCleanup(function() pcall(H.setFpsBoost, false) end)
 
 local rollHideConns = {}
 
-local function rollHideBackup(state)
+function H.rollHideBackup(state)
 	for _, connection in ipairs(rollHideConns) do
 		pcall(function() connection:Disconnect() end)
 	end
@@ -2822,9 +2815,9 @@ local function rollHideBackup(state)
 	end)
 end
 
-onCleanup(function() rollHideBackup(false) end)
+onCleanup(function() H.rollHideBackup(false) end)
 
-local function pressHiddenRoll()
+function H.pressHiddenRoll()
 	local ok, button = pcall(function() return G.UIRefs.Root.Rolling.Options.HiddenRoll end)
 	if not ok or not button or type(getconnections) ~= "function" then return false end
 
@@ -2840,7 +2833,7 @@ local function pressHiddenRoll()
 	return true
 end
 
-local function isRollHidden()
+function H.isRollHidden()
 	local first, second = nil, nil
 
 	pcall(function() first = G.UIRefs.Root.Rolling.Frame.Position end)
@@ -2857,12 +2850,12 @@ local function isRollHidden()
 	return second.Y.Offset > 50
 end
 
-local function syncRollHidden()
+function H.syncRollHidden()
 	for _ = 1, 2 do
-		local current = isRollHidden()
+		local current = H.isRollHidden()
 		if current == nil then return end
 		if current == F.hideRolls then return end
-		if not pressHiddenRoll() then return end
+		if not H.pressHiddenRoll() then return end
 	end
 end
 
@@ -2879,11 +2872,11 @@ local Hooks = {
 
 local HOOK_KINDS = { "Roll", "Stats", "Tower", "Trade" }
 
-local function hookId(url)
+function H.hookId(url)
 	return tostring(url):match("/webhooks/(%d+)") or "unknown"
 end
 
-local function validUrl(url)
+function H.validUrl(url)
 	url = tostring(url or ""):gsub("^%s+", ""):gsub("%s+$", "")
 
 	if not url:match("^https://[%w%.%-]*discord") then return nil end
@@ -2892,7 +2885,7 @@ local function validUrl(url)
 	return url
 end
 
-local function hookChoices()
+function H.hookChoices()
 	local names = { "None" }
 
 	for index, entry in ipairs(Hooks.List) do
@@ -2902,11 +2895,11 @@ local function hookChoices()
 	return names
 end
 
-local function saveHooks()
+function H.saveHooks()
 	writeJson(HOOK_FILE, Hooks.List)
 end
 
-local function buildHook(url)
+function H.buildHook(url)
 	if not Webhook then return nil end
 
 	local ok, built = pcall(function()
@@ -2920,7 +2913,7 @@ end
 
 local hookStatus, hookDropdowns = nil, {}
 
-local function refreshHooks()
+function H.refreshHooks()
 	local text
 
 	if #Hooks.List == 0 then
@@ -2942,11 +2935,11 @@ local function refreshHooks()
 	end
 
 	for _, dropdown in pairs(hookDropdowns) do
-		pcall(function() dropdown:SetOptions(hookChoices()) end)
+		pcall(function() dropdown:SetOptions(H.hookChoices()) end)
 	end
 end
 
-local function assignHook(kind, index)
+function H.assignHook(kind, index)
 	index = tonumber(index) or 0
 
 	local entry = Hooks.List[index]
@@ -2954,11 +2947,11 @@ local function assignHook(kind, index)
 	if not entry then
 		Hooks.Picks[kind] = 0
 		Hooks[kind] = nil
-		refreshHooks()
+		H.refreshHooks()
 		return
 	end
 
-	local built = buildHook(entry.Url)
+	local built = H.buildHook(entry.Url)
 
 	if not built then
 		notify("Webhooks", "Could not build that webhook.", "error", 6)
@@ -2968,11 +2961,11 @@ local function assignHook(kind, index)
 	Hooks.Picks[kind] = index
 	Hooks[kind] = built
 
-	refreshHooks()
+	H.refreshHooks()
 end
 
-local function addHook(url, quiet)
-	url = validUrl(url)
+function H.addHook(url, quiet)
+	url = H.validUrl(url)
 
 	if not url then
 		if not quiet then notify("Webhooks", "That is not a Discord webhook url.", "error", 6) end
@@ -2986,7 +2979,7 @@ local function addHook(url, quiet)
 		end
 	end
 
-	local id = hookId(url)
+	local id = H.hookId(url)
 
 	table.insert(Hooks.List, {
 		Url = url,
@@ -2995,37 +2988,37 @@ local function addHook(url, quiet)
 		Added = os.date("%H:%M"),
 	})
 
-	saveHooks()
-	refreshHooks()
+	H.saveHooks()
+	H.refreshHooks()
 
 	notify("Webhooks", "Saved as hook " .. id:sub(-6) .. ", assign it below.", "success", 5)
 
 	return true, #Hooks.List
 end
 
-local function loadHooks()
+function H.loadHooks()
 	local data = readJson(HOOK_FILE)
 	if type(data) ~= "table" then return end
 
 	for _, entry in ipairs(data) do
-		if type(entry) == "table" and validUrl(entry.Url) then
+		if type(entry) == "table" and H.validUrl(entry.Url) then
 			table.insert(Hooks.List, {
 				Url = entry.Url,
-				Id = entry.Id or ("..." .. hookId(entry.Url):sub(-6)),
-				Name = entry.Name or ("hook " .. hookId(entry.Url):sub(-6)),
+				Id = entry.Id or ("..." .. H.hookId(entry.Url):sub(-6)),
+				Name = entry.Name or ("hook " .. H.hookId(entry.Url):sub(-6)),
 				Added = entry.Added or "-",
 			})
 		end
 	end
 end
 
-local function thumbFor(asset)
+function H.thumbFor(asset)
 	local id = tostring(asset or ""):match("%d+")
 	if not id then return nil end
 	return "https://www.roblox.com/asset-thumbnail/image?assetId=" .. id .. "&width=420&height=420&format=png"
 end
 
-local function sendRollHook(entry, chance)
+function H.sendRollHook(entry, chance)
 	local hook = Hooks.Roll
 	if not hook then return end
 
@@ -3035,13 +3028,13 @@ local function sendRollHook(entry, chance)
 	local thumbnail = nil
 
 	if mutation and G.Mutations and G.Mutations[mutation] then
-		thumbnail = thumbFor(G.Mutations[mutation].image)
+		thumbnail = H.thumbFor(G.Mutations[mutation].image)
 	end
 
 	if not thumbnail then
-		local current = currentDice()
+		local current = H.currentDice()
 		local all = G.DiceMod and G.DiceMod.GetAll() or {}
-		if current and all[current] then thumbnail = thumbFor(all[current].image) end
+		if current and all[current] then thumbnail = H.thumbFor(all[current].image) end
 	end
 
 	local fields = {
@@ -3068,15 +3061,15 @@ local function sendRollHook(entry, chance)
 	end)
 end
 
-local function rollHookWanted(entry, chance)
+function H.rollHookWanted(entry, chance)
 	if not F.rollHookOn or not Hooks.Roll then return false end
 
 	local attributes = entry.attributes or {}
 
 	if F.rollHookMutOnly and not attributes.mutation then return false end
 
-	if #F.rollHookGrades > 0 and not setContains(F.rollHookGrades, attributes.grade) then return false end
-	if #F.rollHookTraits > 0 and not setContains(F.rollHookTraits, attributes.trait) then return false end
+	if #F.rollHookGrades > 0 and not H.setContains(F.rollHookGrades, attributes.grade) then return false end
+	if #F.rollHookTraits > 0 and not H.setContains(F.rollHookTraits, attributes.trait) then return false end
 
 	local minimum = tonumber(F.rollHookMin) or 0
 
@@ -3087,7 +3080,7 @@ end
 
 local rollWatch = nil
 
-local function watchRolls()
+function H.watchRolls()
 	pcall(function()
 		rollWatch = G.DC.Inventory.OnKeyAdded(function(key)
 			task.spawn(function()
@@ -3096,13 +3089,13 @@ local function watchRolls()
 				local entry = invEntry(key)
 				if not entry or not isUnitEntry(entry) then return end
 
-				local cfg = entryConfig(entry.name)
+				local cfg = H.entryConfig(entry.name)
 				if not cfg then return end
 
 				local chance = 0
 				pcall(function() chance = cfg.chance(entry.attributes) or 0 end)
 
-				if rollHookWanted(entry, chance) then sendRollHook(entry, chance) end
+				if H.rollHookWanted(entry, chance) then H.sendRollHook(entry, chance) end
 			end)
 		end)
 	end)
@@ -3116,7 +3109,7 @@ local STAT_FIELDS = { "Money", "Rolls", "Rebirth", "Gems", "Trait Reroll", "Sold
 
 local lastStatsHook = 0
 
-local function sendStatsHook()
+function H.sendStatsHook()
 	local hook = Hooks.Stats
 	if not hook then return end
 
@@ -3124,16 +3117,16 @@ local function sendStatsHook()
 
 	local function want(name)
 		if type(selected) ~= "table" or #selected == 0 then return true end
-		return setContains(selected, name)
+		return H.setContains(selected, name)
 	end
 
 	local fields = {}
 
 	if want("Money") then table.insert(fields, { Name = "Money", Value = fmt(money()), Inline = true }) end
-	if want("Rolls") then table.insert(fields, { Name = "Rolls", Value = tostring(rollCount()), Inline = true }) end
-	if want("Rebirth") then table.insert(fields, { Name = "Rebirth", Value = tostring(rebirthCount()), Inline = true }) end
-	if want("Gems") then table.insert(fields, { Name = "Gems", Value = fmt(currencyAmount("Gems")), Inline = true }) end
-	if want("Trait Reroll") then table.insert(fields, { Name = "Trait Reroll", Value = fmt(currencyAmount("Trait Reroll")), Inline = true }) end
+	if want("Rolls") then table.insert(fields, { Name = "Rolls", Value = tostring(H.rollCount()), Inline = true }) end
+	if want("Rebirth") then table.insert(fields, { Name = "Rebirth", Value = tostring(H.rebirthCount()), Inline = true }) end
+	if want("Gems") then table.insert(fields, { Name = "Gems", Value = fmt(H.currencyAmount("Gems")), Inline = true }) end
+	if want("Trait Reroll") then table.insert(fields, { Name = "Trait Reroll", Value = fmt(H.currencyAmount("Trait Reroll")), Inline = true }) end
 	if want("Sold") then table.insert(fields, { Name = "Sold", Value = tostring(Tally.sold), Inline = true }) end
 	if want("Collected") then table.insert(fields, { Name = "Collected", Value = fmt(Tally.collected), Inline = true }) end
 
@@ -3147,13 +3140,13 @@ local function sendStatsHook()
 	end)
 end
 
-local function statsHookTick()
+function H.statsHookTick()
 	if os.clock() - lastStatsHook < (tonumber(F.statHookInterval) or 300) then return end
 	lastStatsHook = os.clock()
-	if F.statHookOn and Hooks.Stats then task.spawn(sendStatsHook) end
+	if F.statHookOn and Hooks.Stats then task.spawn(H.sendStatsHook) end
 end
 
-function sendTowerHook(name, fromFloor, toFloor, drops, bonus, result)
+function H.sendTowerHook(name, fromFloor, toFloor, drops, bonus, result)
 	local hook = Hooks.Tower
 	if not hook then return end
 
@@ -3197,7 +3190,7 @@ function sendTowerHook(name, fromFloor, toFloor, drops, bonus, result)
 	end)
 end
 
-function sendTradeHook(partner, own, other, result)
+function H.sendTradeHook(partner, own, other, result)
 	local hook = Hooks.Trade
 	if not hook then return end
 
@@ -3207,8 +3200,8 @@ function sendTradeHook(partner, own, other, result)
 			Fields = {
 				{ Name = "Partner", Value = tostring(partner), Inline = true },
 				{ Name = "Result", Value = tostring(result), Inline = true },
-				{ Name = "You gave", Value = offerText(own), Inline = false },
-				{ Name = "You got", Value = offerText(other), Inline = false },
+				{ Name = "You gave", Value = H.offerText(own), Inline = false },
+				{ Name = "You got", Value = H.offerText(other), Inline = false },
 			},
 			Color = Color3.fromRGB(140, 160, 255),
 			Footer = LocalPlayer.DisplayName,
@@ -3216,10 +3209,10 @@ function sendTradeHook(partner, own, other, result)
 	end)
 end
 
-loadHooks()
-watchRolls()
+H.loadHooks()
+H.watchRolls()
 
-local function armReexec()
+function H.armReexec()
 	if not F.reexec then return end
 
 	local queue = queue_on_teleport or queueonteleport
@@ -3245,6 +3238,8 @@ pcall(function()
 	onCleanup(function() pcall(function() connection:Disconnect() end) end)
 end)
 
+local U = {}
+
 local Window = Library:Window({
 	Title             = "Facility",
 	Suffix            = ".Sexility",
@@ -3257,7 +3252,7 @@ local Window = Library:Window({
 
 local FIELD_METHODS = { "Input", "Textbox", "TextBox", "Field", "Text", "Entry" }
 
-local function buildField(box, options)
+function H.buildField(box, options)
 	for _, name in ipairs(FIELD_METHODS) do
 		local ok, method = pcall(function() return box[name] end)
 
@@ -3270,32 +3265,32 @@ local function buildField(box, options)
 	return nil
 end
 
-local MainTab     = Window:Tab("Main", "home")
-local UnitsTab    = Window:Tab("Units", "users")
-local InvTab      = Window:Tab("Inventory", "package")
-local UpgradeTab  = Window:Tab("Upgrades", "trending-up")
-local DiceTab     = Window:Tab("Dice", "dices")
-local SellTab     = Window:Tab("Sell", "coins")
-local TowerTab    = Window:Tab("Tower", "castle")
-local PotionTab   = Window:Tab("Potion", "flask-conical")
-local RerollTab   = Window:Tab("Reroll", "refresh-cw")
-local TradeTab    = Window:Tab("Trade", "repeat")
-local MovementTab = Window:Tab("Movement", "move")
-local MiscTab     = Window:Tab("Misc", "wrench")
-local HookTab     = Window:Tab("Webhooks", "send")
-local Settings    = Window:Tab("Settings", "cog")
+U.MainTab     = Window:Tab("Main", "home")
+U.UnitsTab    = Window:Tab("Units", "users")
+U.InvTab      = Window:Tab("Inventory", "package")
+U.UpgradeTab  = Window:Tab("Upgrades", "trending-up")
+U.DiceTab     = Window:Tab("Dice", "dices")
+U.SellTab     = Window:Tab("Sell", "coins")
+U.TowerTab    = Window:Tab("Tower", "castle")
+U.PotionTab   = Window:Tab("Potion", "flask-conical")
+U.RerollTab   = Window:Tab("Reroll", "refresh-cw")
+U.TradeTab    = Window:Tab("Trade", "repeat")
+U.MovementTab = Window:Tab("Movement", "move")
+U.MiscTab     = Window:Tab("Misc", "wrench")
+U.HookTab     = Window:Tab("Webhooks", "send")
+U.Settings    = Window:Tab("Settings", "cog")
 
 local GRADE_NAMES, TRAIT_NAMES, MUTATION_NAMES = {}, {}, {}
 
-for _, entry in ipairs(orderedNames(G.GradesMod)) do table.insert(GRADE_NAMES, entry.name) end
-for _, entry in ipairs(orderedNames(G.TraitsMod)) do table.insert(TRAIT_NAMES, entry.name) end
-MUTATION_NAMES = mutationNames()
+for _, entry in ipairs(H.orderedNames(G.GradesMod)) do table.insert(GRADE_NAMES, entry.name) end
+for _, entry in ipairs(H.orderedNames(G.TraitsMod)) do table.insert(TRAIT_NAMES, entry.name) end
+MUTATION_NAMES = H.mutationNames()
 
 if #GRADE_NAMES == 0 then GRADE_NAMES = { "(unavailable)" } end
 if #TRAIT_NAMES == 0 then TRAIT_NAMES = { "(unavailable)" } end
 if #MUTATION_NAMES == 0 then MUTATION_NAMES = { "(unavailable)" } end
 
-local function selectionSet(selected)
+function H.selectionSet(selected)
 	local out = {}
 
 	if type(selected) == "table" then
@@ -3305,32 +3300,32 @@ local function selectionSet(selected)
 	return out
 end
 
-local statusBox = MainTab:Section("Status", 1)
+U.statusBox = U.MainTab:Section("Status", 1)
 
-local statusLabel = statusBox:Label("Idle")
-local walletLabel = statusBox:Label("-", { Style = "dim" })
-local currencyLabel = statusBox:Label("-", { Style = "dim" })
-local frameworkLabel = statusBox:Label("-", { Style = "dim" })
+U.statusLabel = U.statusBox:Label("Idle")
+U.walletLabel = U.statusBox:Label("-", { Style = "dim" })
+U.currencyLabel = U.statusBox:Label("-", { Style = "dim" })
+U.frameworkLabel = U.statusBox:Label("-", { Style = "dim" })
 
 if not G.ok then
-	frameworkLabel:Set("framework not loaded, most features are off")
+	U.frameworkLabel:Set("framework not loaded, most features are off")
 	notify("Facility", "The game framework did not load, reload in a fresh server.", "error", 10)
 elseif #G.missing > 0 then
-	frameworkLabel:Set("missing modules: " .. table.concat(G.missing, ", "))
+	U.frameworkLabel:Set("missing modules: " .. table.concat(G.missing, ", "))
 else
-	frameworkLabel:Set("framework loaded")
+	U.frameworkLabel:Set("framework loaded")
 end
 
-local collectBox = MainTab:Section("Money", 2)
+U.collectBox = U.MainTab:Section("Money", 2)
 
-collectBox:Toggle({
+U.collectBox:Toggle({
 	Text = "Auto Collect",
 	Flag = "ad_collect",
 	Default = false,
 	Callback = function(state) F.collect = state end,
 })
 
-collectBox:Slider({
+U.collectBox:Slider({
 	Text = "Collect Delay",
 	Flag = "ad_collect_delay",
 	Min = 0.5, Max = 30, Default = 2,
@@ -3339,7 +3334,7 @@ collectBox:Slider({
 	Callback = function(value) F.collectDelay = tonumber(value) or 2 end,
 })
 
-collectBox:Slider({
+U.collectBox:Slider({
 	Text = "Only Above",
 	Flag = "ad_collect_min",
 	Min = 0, Max = 1000000, Default = 0,
@@ -3350,21 +3345,21 @@ collectBox:Slider({
 		panel:Label("Skips slots holding less than this, fewer remote calls.", { Style = "dim" })
 	end)
 
-collectBox:Button({
+U.collectBox:Button({
 	Text = "Collect Now",
-	Callback = function() task.spawn(function() pcall(doCollect) end) end,
+	Callback = function() task.spawn(function() pcall(H.doCollect) end) end,
 })
 
-local rebirthBox = MainTab:Section("Rebirth", 1)
+U.rebirthBox = U.MainTab:Section("Rebirth", 1)
 
-rebirthBox:Toggle({
+U.rebirthBox:Toggle({
 	Text = "Auto Rebirth",
 	Flag = "ad_rebirth",
 	Default = false,
 	Callback = function(state) F.rebirth = state end,
 })
 
-rebirthBox:Slider({
+U.rebirthBox:Slider({
 	Text = "Check Delay",
 	Flag = "ad_rebirth_delay",
 	Min = 1, Max = 60, Default = 5,
@@ -3373,14 +3368,14 @@ rebirthBox:Slider({
 	Callback = function(value) F.rebirthDelay = tonumber(value) or 5 end,
 })
 
-rebirthBox:Button({
+U.rebirthBox:Button({
 	Text = "Rebirth Now",
-	Callback = function() task.spawn(function() pcall(doRebirth) end) end,
+	Callback = function() task.spawn(function() pcall(H.doRebirth) end) end,
 })
 
-local rollBox = MainTab:Section("Roll", 2)
+U.rollBox = U.MainTab:Section("Roll", 2)
 
-rollBox:Toggle({
+U.rollBox:Toggle({
 	Text = "Auto Roll",
 	Flag = "ad_auto_roll",
 	Default = false,
@@ -3391,36 +3386,36 @@ rollBox:Toggle({
 	end,
 })
 
-rollBox:Toggle({
+U.rollBox:Toggle({
 	Text = "Hide Roll Animation",
 	Flag = "ad_hide_rolls",
 	Default = false,
 	Callback = function(state)
 		F.hideRolls = state
 		task.spawn(function()
-			syncRollHidden()
-			rollHideBackup(state)
+			H.syncRollHidden()
+			H.rollHideBackup(state)
 		end)
 	end,
 })
 
-local questBox = MainTab:Section("Quests And Codes", 1)
+U.questBox = U.MainTab:Section("Quests And Codes", 1)
 
-questBox:Toggle({
+U.questBox:Toggle({
 	Text = "Auto Claim Quests",
 	Flag = "ad_quests",
 	Default = false,
 	Callback = function(state) F.claimQuests = state end,
 })
 
-questBox:Toggle({
+U.questBox:Toggle({
 	Text = "Auto Redeem Codes",
 	Flag = "ad_codes",
 	Default = false,
 	Callback = function(state) F.codesAuto = state end,
 })
 
-questBox:Slider({
+U.questBox:Slider({
 	Text = "Retry Every",
 	Flag = "ad_codes_delay",
 	Min = 60, Max = 3600, Default = 300,
@@ -3428,25 +3423,25 @@ questBox:Slider({
 	Callback = function(value) F.codesDelay = tonumber(value) or 300 end,
 })
 
-questBox:Button({
+U.questBox:Button({
 	Text = "Redeem All Codes Now",
-	Callback = function() task.spawn(function() pcall(doRedeemCodes, true) end) end,
+	Callback = function() task.spawn(function() pcall(H.doRedeemCodes, true) end) end,
 })
 
-questBox:Button({
+U.questBox:Button({
 	Text = "Claim Quests Now",
-	Callback = function() task.spawn(function() pcall(doClaimQuests) end) end,
+	Callback = function() task.spawn(function() pcall(H.doClaimQuests) end) end,
 })
 
-local logBox = MainTab:Section("Log", "full")
+U.logBox = U.MainTab:Section("Log", "full")
 
-local logTable = logBox:Table({
+U.logTable = U.logBox:Table({
 	Columns = { "Time", "Event" },
 	MaxRows = 12,
 	EmptyText = "Nothing logged yet",
 })
 
-logBox:Button({
+U.logBox:Button({
 	Text = "Copy Log",
 	Callback = function()
 		if type(setclipboard) ~= "function" then
@@ -3459,7 +3454,7 @@ logBox:Button({
 	end,
 })
 
-logBox:Button({
+U.logBox:Button({
 	Text = "Clear Log",
 	Callback = function()
 		table.clear(logLines)
@@ -3467,36 +3462,36 @@ logBox:Button({
 	end,
 })
 
-local levelBox = UnitsTab:Section("Level Up", 1)
+U.levelBox = U.UnitsTab:Section("Level Up", 1)
 
-levelBox:Toggle({
+U.levelBox:Toggle({
 	Text = "Auto Level Up",
 	Flag = "ad_levelup",
 	Default = false,
 	Callback = function(state) F.levelup = state end,
 })
 
-levelBox:Slider({
+U.levelBox:Slider({
 	Text = "Max Level",
 	Flag = "ad_max_level",
 	Min = 1, Max = 99, Default = 40,
 	Callback = function(value) F.maxLevel = math.floor(tonumber(value) or 40) end,
 })
 
-levelBox:Toggle({
+U.levelBox:Toggle({
 	Text = "Smart Level Cap",
 	Flag = "ad_smart_level",
 	Default = false,
 	Callback = function(state)
 		F.smartLevel = state
-		if state then task.spawn(function() applySmartLevel(true) end) end
+		if state then task.spawn(function() H.applySmartLevel(true) end) end
 	end,
 })
 	:Gear(function(panel)
 		panel:Label("Moves the cap so levelling stays under 10 percent of your money.", { Style = "dim" })
 	end)
 
-levelBox:Slider({
+U.levelBox:Slider({
 	Text = "Level Delay",
 	Flag = "ad_level_delay",
 	Min = 0.5, Max = 30, Default = 2.5,
@@ -3505,23 +3500,23 @@ levelBox:Slider({
 	Callback = function(value) F.levelDelay = tonumber(value) or 2.5 end,
 })
 
-local placeBox = UnitsTab:Section("Place Best", 2)
+U.placeBox = U.UnitsTab:Section("Place Best", 2)
 
-placeBox:Toggle({
+U.placeBox:Toggle({
 	Text = "Auto Place Best",
 	Flag = "ad_place",
 	Default = false,
 	Callback = function(state) F.placeBest = state end,
 })
 
-placeBox:Toggle({
+U.placeBox:Toggle({
 	Text = "Replace Worst When Full",
 	Flag = "ad_replace_worst",
 	Default = true,
 	Callback = function(state) F.replaceWorst = state end,
 })
 
-placeBox:Slider({
+U.placeBox:Slider({
 	Text = "Place Delay",
 	Flag = "ad_place_delay",
 	Min = 1, Max = 60, Default = 5,
@@ -3530,7 +3525,7 @@ placeBox:Slider({
 	Callback = function(value) F.placeDelay = tonumber(value) or 5 end,
 })
 
-placeBox:Button({
+U.placeBox:Button({
 	Text = "Game EquipBest (one shot)",
 	Callback = function()
 		local signal = getSig("PlotService", "EquipBest")
@@ -3545,9 +3540,9 @@ placeBox:Button({
 	end,
 })
 
-local slotBox = UnitsTab:Section("Slots", "full")
+U.slotBox = U.UnitsTab:Section("Slots", "full")
 
-local slotTable = slotBox:Table({
+U.slotTable = U.slotBox:Table({
 	Columns = { "Slot", "Unit", "Lvl", "Chance", "Pending", "State" },
 	MaxRows = 14,
 	EmptyText = "No slot data yet",
@@ -3556,32 +3551,32 @@ local slotTable = slotBox:Table({
 local SLOT_CHOICES = {}
 for index = 1, 14 do table.insert(SLOT_CHOICES, tostring(index)) end
 
-slotBox:Dropdown({
+U.slotBox:Dropdown({
 	Text = "Locked Slots",
 	Flag = "ad_locked_slots",
 	Options = SLOT_CHOICES,
 	Default = {},
 	Multi = true,
 	Empty = "None locked",
-	Callback = function(selected) F.lockedSlots = selectionSet(selected) end,
+	Callback = function(selected) F.lockedSlots = H.selectionSet(selected) end,
 })
 	:Gear(function(panel)
 		panel:Label("Auto place and auto level up never touch a locked slot.", { Style = "dim" })
 	end)
 
-local invBox = InvTab:Section("Owned Units", "full")
+U.invBox = U.InvTab:Section("Owned Units", "full")
 
-local invCount = invBox:Label("-", { Style = "bright" })
+U.invCount = U.invBox:Label("-", { Style = "bright" })
 
-local invTable = invBox:Table({
+U.invTable = U.invBox:Table({
 	Columns = { "Unit", "Chance", "Grade", "Trait", "Mutation", "Lvl", "Where" },
 	MaxRows = 16,
 	EmptyText = "Inventory not read yet",
 })
 
-local invControls = InvTab:Section("View", 1)
+U.invControls = U.InvTab:Section("View", 1)
 
-invControls:Dropdown({
+U.invControls:Dropdown({
 	Text = "Sort By",
 	Flag = "ad_inv_sort",
 	Options = { "Chance", "Grade", "Trait", "Level", "Name" },
@@ -3589,18 +3584,18 @@ invControls:Dropdown({
 	Callback = function(value) F.invSort = tostring(value) end,
 })
 
-invControls:Toggle({
+U.invControls:Toggle({
 	Text = "Placed Only",
 	Flag = "ad_inv_placed",
 	Default = false,
 	Callback = function(state) F.invPlacedOnly = state end,
 })
 
-local protectBox = InvTab:Section("Protect From Selling", 2)
+U.protectBox = U.InvTab:Section("Protect From Selling", 2)
 
-local protectCount = protectBox:Label("-", { Style = "dim" })
+U.protectCount = U.protectBox:Label("-", { Style = "dim" })
 
-protectBox:Button({
+U.protectBox:Button({
 	Text = "Protect Top Unit",
 	Callback = function()
 		local best, bestChance = nil, 0
@@ -3618,14 +3613,14 @@ protectBox:Button({
 		end
 
 		protectedKeys[best] = true
-		saveProtected()
+		H.saveProtected()
 
 		local entry = invEntry(best) or {}
 		notify("Inventory", "Protected " .. tostring(entry.name) .. " [1 in " .. fmt(bestChance) .. "].", "success", 4)
 	end,
 })
 
-protectBox:Button({
+U.protectBox:Button({
 	Text = "Protect All Placed",
 	Callback = function()
 		local added = 0
@@ -3637,30 +3632,30 @@ protectBox:Button({
 			end
 		end
 
-		saveProtected()
+		H.saveProtected()
 		notify("Inventory", added .. " placed units protected.", "success", 4)
 	end,
 })
 
-protectBox:Button({
+U.protectBox:Button({
 	Text = "Clear Protected",
 	Callback = function()
 		table.clear(protectedKeys)
-		saveProtected()
+		H.saveProtected()
 		notify("Inventory", "Protection list cleared.", "success", 3)
 	end,
 })
 
-local upgradeBox = UpgradeTab:Section("Skill Tree", 1)
+U.upgradeBox = U.UpgradeTab:Section("Skill Tree", 1)
 
-upgradeBox:Toggle({
+U.upgradeBox:Toggle({
 	Text = "Auto Upgrades",
 	Flag = "ad_upgrades",
 	Default = false,
 	Callback = function(state) F.upgrades = state end,
 })
 
-upgradeBox:Slider({
+U.upgradeBox:Slider({
 	Text = "Upgrade Delay",
 	Flag = "ad_upgrade_delay",
 	Min = 0.5, Max = 30, Default = 2,
@@ -3669,30 +3664,30 @@ upgradeBox:Slider({
 	Callback = function(value) F.upgradeDelay = tonumber(value) or 2 end,
 })
 
-upgradeBox:Dropdown({
+U.upgradeBox:Dropdown({
 	Text = "Category Filter",
 	Flag = "ad_upgrade_cats",
 	Options = UPGRADE_CATEGORIES,
 	Default = {},
 	Multi = true,
 	Empty = "Every category",
-	Callback = function(selected) F.upgradeCats = selectionSet(selected) end,
+	Callback = function(selected) F.upgradeCats = H.selectionSet(selected) end,
 })
 
-upgradeBox:Dropdown({
+U.upgradeBox:Dropdown({
 	Text = "Priority Order",
 	Flag = "ad_upgrade_order",
 	Options = UPGRADE_CATEGORIES,
 	Default = {},
 	Multi = true,
 	Empty = "Cheapest first",
-	Callback = function(selected) F.upgradeOrder = selectionSet(selected) end,
+	Callback = function(selected) F.upgradeOrder = H.selectionSet(selected) end,
 })
 	:Gear(function(panel)
 		panel:Label("Picked categories are bought before the rest, in the order you select them.", { Style = "dim" })
 	end)
 
-upgradeBox:Slider({
+U.upgradeBox:Slider({
 	Text = "Money Reserve",
 	Flag = "ad_upgrade_reserve",
 	Min = 0, Max = 1000000000, Default = 0,
@@ -3700,23 +3695,23 @@ upgradeBox:Slider({
 	Callback = function(value) F.upgradeReserve = tonumber(value) or 0 end,
 })
 
-local diceBox = DiceTab:Section("Dice Shop", 1)
+U.diceBox = U.DiceTab:Section("Dice Shop", 1)
 
-diceBox:Toggle({
+U.diceBox:Toggle({
 	Text = "Auto Buy Best Dice",
 	Flag = "ad_buy_dice",
 	Default = false,
 	Callback = function(state) F.buyDice = state end,
 })
 
-diceBox:Toggle({
+U.diceBox:Toggle({
 	Text = "Auto Equip Best Dice",
 	Flag = "ad_equip_dice",
 	Default = true,
 	Callback = function(state) F.equipDice = state end,
 })
 
-diceBox:Slider({
+U.diceBox:Slider({
 	Text = "Check Delay",
 	Flag = "ad_dice_delay",
 	Min = 1, Max = 60, Default = 5,
@@ -3725,17 +3720,17 @@ diceBox:Slider({
 	Callback = function(value) F.diceDelay = tonumber(value) or 5 end,
 })
 
-local diceListBox = DiceTab:Section("All Dice", "full")
+U.diceListBox = U.DiceTab:Section("All Dice", "full")
 
-local diceTable = diceListBox:Table({
+U.diceTable = U.diceListBox:Table({
 	Columns = { "Dice", "Luck", "Price", "Owned" },
 	MaxRows = 14,
 	EmptyText = "Dice module not loaded",
 })
 
-local sellBox = SellTab:Section("Filter", 1)
+U.sellBox = U.SellTab:Section("Filter", 1)
 
-sellBox:Dropdown({
+U.sellBox:Dropdown({
 	Text = "Sell What",
 	Flag = "ad_sell_mode",
 	Options = { "Chance", "Grade", "Trait", "Mutation", "Any Match", "Keep Listed" },
@@ -3746,41 +3741,41 @@ sellBox:Dropdown({
 		panel:Label("Chance uses the threshold. Grade, Trait and Mutation use their list. Any Match sells on any hit. Keep Listed sells everything except the listed grades, traits and mutations.", { Style = "dim" })
 	end)
 
-sellBox:Dropdown({
+U.sellBox:Dropdown({
 	Text = "Grades",
 	Flag = "ad_sell_grades",
 	Options = GRADE_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "None",
-	Callback = function(selected) F.sellGrades = selectionSet(selected) end,
+	Callback = function(selected) F.sellGrades = H.selectionSet(selected) end,
 })
 
-sellBox:Dropdown({
+U.sellBox:Dropdown({
 	Text = "Traits",
 	Flag = "ad_sell_traits",
 	Options = TRAIT_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "None",
-	Callback = function(selected) F.sellTraits = selectionSet(selected) end,
+	Callback = function(selected) F.sellTraits = H.selectionSet(selected) end,
 })
 
-sellBox:Dropdown({
+U.sellBox:Dropdown({
 	Text = "Mutations",
 	Flag = "ad_sell_mutations",
 	Options = MUTATION_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "None",
-	Callback = function(selected) F.sellMutations = selectionSet(selected) end,
+	Callback = function(selected) F.sellMutations = H.selectionSet(selected) end,
 })
 
-local thresholdBox = SellTab:Section("Threshold", 2)
+U.thresholdBox = U.SellTab:Section("Threshold", 2)
 
-local thresholdLabel = thresholdBox:Label("threshold off", { Style = "bright" })
+U.thresholdLabel = U.thresholdBox:Label("threshold off", { Style = "bright" })
 
-local function applyThreshold(value)
+function H.applyThreshold(value)
 	F.sellThreshold = math.max(0, value or 0)
 	sellInputText = F.sellThreshold > 0 and fmt(F.sellThreshold) or ""
 
@@ -3790,7 +3785,7 @@ local function applyThreshold(value)
 	end
 end
 
-local thresholdField = buildField(thresholdBox, {
+U.thresholdField = H.buildField(U.thresholdBox, {
 	Text = "Keep Above 1 In",
 	Placeholder = "e.g. 1t",
 	Default = "",
@@ -3804,35 +3799,35 @@ local thresholdField = buildField(thresholdBox, {
 			return
 		end
 
-		applyThreshold(parsed)
+		H.applyThreshold(parsed)
 	end,
 })
 
-if not thresholdField then
-	thresholdBox:Slider({
+if not U.thresholdField then
+	U.thresholdBox:Slider({
 		Text = "Keep Above 1 In",
 		Flag = "ad_sell_threshold",
 		Min = 0, Max = 1000, Default = 0,
 		Decimals = 1,
 		Suffix = " x1e9",
-		Callback = function(value) applyThreshold((tonumber(value) or 0) * 1e9) end,
+		Callback = function(value) H.applyThreshold((tonumber(value) or 0) * 1e9) end,
 	})
 end
 
-thresholdBox:Toggle({
+U.thresholdBox:Toggle({
 	Text = "Smart Threshold",
 	Flag = "ad_smart_sell",
 	Default = false,
 	Callback = function(state)
 		F.smartSell = state
-		if state then task.spawn(function() applySmartSell(true) end) end
+		if state then task.spawn(function() H.applySmartSell(true) end) end
 	end,
 })
 	:Gear(function(panel)
 		panel:Label("Recomputes the threshold from your luck and your best owned unit.", { Style = "dim" })
 	end)
 
-thresholdBox:Toggle({
+U.thresholdBox:Toggle({
 	Text = "Apply To Game Auto Sell",
 	Flag = "ad_sell_sync",
 	Default = false,
@@ -3843,16 +3838,16 @@ thresholdBox:Toggle({
 	end,
 })
 
-local sellRunBox = SellTab:Section("Run", 1)
+U.sellRunBox = U.SellTab:Section("Run", 1)
 
-sellRunBox:Toggle({
+U.sellRunBox:Toggle({
 	Text = "Auto Sell",
 	Flag = "ad_sell_auto",
 	Default = false,
 	Callback = function(state) F.sellAuto = state end,
 })
 
-sellRunBox:Slider({
+U.sellRunBox:Slider({
 	Text = "Sell Delay",
 	Flag = "ad_sell_delay",
 	Min = 2, Max = 120, Default = 10,
@@ -3860,43 +3855,43 @@ sellRunBox:Slider({
 	Callback = function(value) F.sellDelay = tonumber(value) or 10 end,
 })
 
-sellRunBox:Slider({
+U.sellRunBox:Slider({
 	Text = "Keep Top N",
 	Flag = "ad_keep_best",
 	Min = 0, Max = 50, Default = 0,
 	Callback = function(value) F.keepBest = math.floor(tonumber(value) or 0) end,
 })
 
-sellRunBox:Button({
+U.sellRunBox:Button({
 	Text = "Sell Now",
-	Callback = function() task.spawn(function() pcall(doSell, true) end) end,
+	Callback = function() task.spawn(function() pcall(H.doSell, true) end) end,
 })
 
-local towerBox = TowerTab:Section("Run", 1)
+U.towerBox = U.TowerTab:Section("Run", 1)
 
-towerDropdown = towerBox:Dropdown({
+towerDropdown = U.towerBox:Dropdown({
 	Text = "Tower",
 	Flag = "ad_tower_name",
-	Options = towerNames(),
+	Options = H.towerNames(),
 	Default = "Dragon Tower",
 	Callback = function(value) F.towerName = tostring(value) end,
 })
 
-towerBox:Toggle({
+U.towerBox:Toggle({
 	Text = "Auto Tower",
 	Flag = "ad_tower",
 	Default = false,
 	Callback = function(state) F.tower = state end,
 })
 
-towerBox:Toggle({
+U.towerBox:Toggle({
 	Text = "Equip Best Team First",
 	Flag = "ad_tower_equip",
 	Default = true,
 	Callback = function(state) F.towerEquipBest = state end,
 })
 
-towerBox:Toggle({
+U.towerBox:Toggle({
 	Text = "Smart Tower",
 	Flag = "ad_smart_tower",
 	Default = false,
@@ -3906,36 +3901,36 @@ towerBox:Toggle({
 		panel:Label("Simulates every tower against your team with upgrade and potion buffs, then picks the best.", { Style = "dim" })
 	end)
 
-towerBox:Button({
+U.towerBox:Button({
 	Text = "Check Best Tower Now",
-	Callback = function() task.spawn(function() pcall(runSmartTower) end) end,
+	Callback = function() task.spawn(function() pcall(H.runSmartTower) end) end,
 })
 
-towerBox:Button({
+U.towerBox:Button({
 	Text = "Refresh Tower List",
 	Callback = function()
-		pcall(function() towerDropdown:SetOptions(towerNames()) end)
+		pcall(function() towerDropdown:SetOptions(H.towerNames()) end)
 		notify("Tower", "List refreshed.", "success", 3)
 	end,
 })
 
-local exitBox = TowerTab:Section("Exit", 2)
+U.exitBox = U.TowerTab:Section("Exit", 2)
 
-exitBox:Toggle({
+U.exitBox:Toggle({
 	Text = "Exit At Floor",
 	Flag = "ad_tower_exit",
 	Default = false,
 	Callback = function(state) F.towerExitOn = state end,
 })
 
-exitBox:Slider({
+U.exitBox:Slider({
 	Text = "Floor",
 	Flag = "ad_tower_exit_floor",
 	Min = 0, Max = 200, Default = 0,
 	Callback = function(value) F.towerExitFloor = math.floor(tonumber(value) or 0) end,
 })
 
-exitBox:Button({
+U.exitBox:Button({
 	Text = "Stop Tower",
 	Callback = function()
 		F.tower = false
@@ -3947,15 +3942,15 @@ exitBox:Button({
 	end,
 })
 
-local towerStatBox = TowerTab:Section("Stats", "full")
+U.towerStatBox = U.TowerTab:Section("Stats", "full")
 
-local towerStatTable = towerStatBox:Table({
+U.towerStatTable = U.towerStatBox:Table({
 	Columns = { "Metric", "Value" },
 	MaxRows = 8,
 	EmptyText = "No tower run yet",
 })
 
-towerStatBox:Button({
+U.towerStatBox:Button({
 	Text = "Reset Tower Stats",
 	Callback = function()
 		Tally.towerWins = {}
@@ -3967,7 +3962,7 @@ towerStatBox:Button({
 	end,
 })
 
-local function potionChoices()
+function H.potionChoices()
 	local names = {}
 
 	if G.BoostConfig and G.BoostConfig.entries then
@@ -3983,40 +3978,40 @@ local function potionChoices()
 	return names
 end
 
-local potionBox = PotionTab:Section("Auto Potion", 1)
+U.potionBox = U.PotionTab:Section("Auto Potion", 1)
 
-local potionDropdown = potionBox:Dropdown({
+U.potionDropdown = U.potionBox:Dropdown({
 	Text = "Potions",
 	Flag = "ad_potions",
-	Options = potionChoices(),
+	Options = H.potionChoices(),
 	Default = {},
 	Multi = true,
 	Empty = "None selected",
-	Callback = function(selected) F.potions = selectionSet(selected) end,
+	Callback = function(selected) F.potions = H.selectionSet(selected) end,
 })
 
-potionBox:Toggle({
+U.potionBox:Toggle({
 	Text = "Auto Potion",
 	Flag = "ad_potion_auto",
 	Default = false,
 	Callback = function(state) F.potionAuto = state end,
 })
 
-potionBox:Toggle({
+U.potionBox:Toggle({
 	Text = "Best Per Category",
 	Flag = "ad_potion_best",
 	Default = true,
 	Callback = function(state) F.potionBest = state end,
 })
 
-potionBox:Toggle({
+U.potionBox:Toggle({
 	Text = "Extend While Active",
 	Flag = "ad_potion_extend",
 	Default = false,
 	Callback = function(state) F.potionExtend = state end,
 })
 
-potionBox:Slider({
+U.potionBox:Slider({
 	Text = "Check Delay",
 	Flag = "ad_potion_delay",
 	Min = 1, Max = 120, Default = 5,
@@ -4025,42 +4020,42 @@ potionBox:Slider({
 	Callback = function(value) F.potionDelay = tonumber(value) or 5 end,
 })
 
-potionBox:Button({
+U.potionBox:Button({
 	Text = "Refresh Potion List",
 	Callback = function()
-		pcall(function() potionDropdown:SetOptions(potionChoices()) end)
+		pcall(function() U.potionDropdown:SetOptions(H.potionChoices()) end)
 		notify("Potion", "List refreshed.", "success", 3)
 	end,
 })
 
-local buffBox = PotionTab:Section("Active Buffs", "full")
+U.buffBox = U.PotionTab:Section("Active Buffs", "full")
 
-local buffTable = buffBox:Table({
+U.buffTable = U.buffBox:Table({
 	Columns = { "Buff", "Category", "Tier", "Left" },
 	MaxRows = 12,
 	EmptyText = "No buff active",
 })
 
-local gradeBox = RerollTab:Section("Auto Grade", 1)
+U.gradeBox = U.RerollTab:Section("Auto Grade", 1)
 
-gradeBox:Toggle({
+U.gradeBox:Toggle({
 	Text = "Auto Grade",
 	Flag = "ad_grade_auto",
 	Default = false,
 	Callback = function(state) F.gradeAuto = state end,
 })
 
-gradeBox:Dropdown({
+U.gradeBox:Dropdown({
 	Text = "Target Grades",
 	Flag = "ad_grade_targets",
 	Options = GRADE_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "None selected",
-	Callback = function(selected) F.gradeTargets = selectionSet(selected) end,
+	Callback = function(selected) F.gradeTargets = H.selectionSet(selected) end,
 })
 
-gradeBox:Toggle({
+U.gradeBox:Toggle({
 	Text = "All Units",
 	Flag = "ad_grade_all",
 	Default = false,
@@ -4070,7 +4065,7 @@ gradeBox:Toggle({
 	end,
 })
 
-gradeBox:Toggle({
+U.gradeBox:Toggle({
 	Text = "Placed Units Only",
 	Flag = "ad_grade_placed",
 	Default = false,
@@ -4080,7 +4075,7 @@ gradeBox:Toggle({
 	end,
 })
 
-gradeBox:Slider({
+U.gradeBox:Slider({
 	Text = "Grade Delay",
 	Flag = "ad_grade_delay",
 	Min = 0.5, Max = 30, Default = 2,
@@ -4089,38 +4084,38 @@ gradeBox:Slider({
 	Callback = function(value) F.gradeDelay = tonumber(value) or 2 end,
 })
 
-gradeBox:Slider({
+U.gradeBox:Slider({
 	Text = "Gems Reserve",
 	Flag = "ad_gem_reserve",
 	Min = 0, Max = 100000, Default = 0,
 	Callback = function(value) F.gemReserve = math.floor(tonumber(value) or 0) end,
 })
 
-gradeBox:Button({
+U.gradeBox:Button({
 	Text = "Grade Once",
-	Callback = function() task.spawn(function() pcall(rerollTick, "grade", true) end) end,
+	Callback = function() task.spawn(function() pcall(H.rerollTick, "grade", true) end) end,
 })
 
-local traitBox = RerollTab:Section("Auto Trait", 2)
+U.traitBox = U.RerollTab:Section("Auto Trait", 2)
 
-traitBox:Toggle({
+U.traitBox:Toggle({
 	Text = "Auto Trait",
 	Flag = "ad_trait_auto",
 	Default = false,
 	Callback = function(state) F.traitAuto = state end,
 })
 
-traitBox:Dropdown({
+U.traitBox:Dropdown({
 	Text = "Target Traits",
 	Flag = "ad_trait_targets",
 	Options = TRAIT_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "None selected",
-	Callback = function(selected) F.traitTargets = selectionSet(selected) end,
+	Callback = function(selected) F.traitTargets = H.selectionSet(selected) end,
 })
 
-traitBox:Toggle({
+U.traitBox:Toggle({
 	Text = "All Units",
 	Flag = "ad_trait_all",
 	Default = false,
@@ -4130,7 +4125,7 @@ traitBox:Toggle({
 	end,
 })
 
-traitBox:Toggle({
+U.traitBox:Toggle({
 	Text = "Placed Units Only",
 	Flag = "ad_trait_placed",
 	Default = false,
@@ -4140,7 +4135,7 @@ traitBox:Toggle({
 	end,
 })
 
-traitBox:Slider({
+U.traitBox:Slider({
 	Text = "Trait Delay",
 	Flag = "ad_trait_delay",
 	Min = 0.5, Max = 30, Default = 2,
@@ -4149,34 +4144,34 @@ traitBox:Slider({
 	Callback = function(value) F.traitDelay = tonumber(value) or 2 end,
 })
 
-traitBox:Slider({
+U.traitBox:Slider({
 	Text = "Trait Reroll Reserve",
 	Flag = "ad_reroll_reserve",
 	Min = 0, Max = 100000, Default = 0,
 	Callback = function(value) F.rerollReserve = math.floor(tonumber(value) or 0) end,
 })
 
-traitBox:Button({
+U.traitBox:Button({
 	Text = "Trait Once",
-	Callback = function() task.spawn(function() pcall(rerollTick, "trait", true) end) end,
+	Callback = function() task.spawn(function() pcall(H.rerollTick, "trait", true) end) end,
 })
 
-local rerollInfo = RerollTab:Section("Currency", "full")
+U.rerollInfo = U.RerollTab:Section("Currency", "full")
 
-local rerollLabel = rerollInfo:Label("-", { Style = "bright" })
+U.rerollLabel = U.rerollInfo:Label("-", { Style = "bright" })
 
-rerollInfo:Label("A protected grade or trait is only rerolled when one of your targets ranks above it.", { Style = "dim" })
+U.rerollInfo:Label("A protected grade or trait is only rerolled when one of your targets ranks above it.", { Style = "dim" })
 
-local tradeBox = TradeTab:Section("Auto Trade", 1)
+U.tradeBox = U.TradeTab:Section("Auto Trade", 1)
 
-tradeBox:Toggle({
+U.tradeBox:Toggle({
 	Text = "Auto Trade",
 	Flag = "ad_trade_auto",
 	Default = false,
 	Callback = function(state) F.tradeAuto = state end,
 })
 
-local tradeMoneyField = buildField(tradeBox, {
+U.tradeMoneyField = H.buildField(U.tradeBox, {
 	Text = "Min Partner Money",
 	Placeholder = "e.g. 1b",
 	Default = "",
@@ -4194,8 +4189,8 @@ local tradeMoneyField = buildField(tradeBox, {
 	end,
 })
 
-if not tradeMoneyField then
-	tradeBox:Slider({
+if not U.tradeMoneyField then
+	U.tradeBox:Slider({
 		Text = "Min Partner Money",
 		Flag = "ad_trade_money",
 		Min = 0, Max = 1000, Default = 0,
@@ -4205,21 +4200,21 @@ if not tradeMoneyField then
 	})
 end
 
-tradeBox:Slider({
+U.tradeBox:Slider({
 	Text = "Retries Per Player",
 	Flag = "ad_trade_retries",
 	Min = 1, Max = 10, Default = 3,
 	Callback = function(value) F.tradeRetries = math.floor(tonumber(value) or 3) end,
 })
 
-tradeBox:Toggle({
+U.tradeBox:Toggle({
 	Text = "Hop When Nobody Matches",
 	Flag = "ad_trade_hop",
 	Default = true,
 	Callback = function(state) F.tradeHop = state end,
 })
 
-tradeBox:Slider({
+U.tradeBox:Slider({
 	Text = "Hop Delay",
 	Flag = "ad_trade_hop_delay",
 	Min = 1, Max = 30, Default = 8,
@@ -4227,49 +4222,49 @@ tradeBox:Slider({
 	Callback = function(value) F.tradeHopDelay = tonumber(value) or 8 end,
 })
 
-local tradeDriveBox = TradeTab:Section("Drive", 2)
+U.tradeDriveBox = U.TradeTab:Section("Drive", 2)
 
-tradeDriveBox:Toggle({
+U.tradeDriveBox:Toggle({
 	Text = "Auto Ready And Accept",
 	Flag = "ad_trade_go",
 	Default = true,
 	Callback = function(state) F.tradeAutoGo = state end,
 })
 
-tradeDriveBox:Toggle({
+U.tradeDriveBox:Toggle({
 	Text = "Require Partner Offer",
 	Flag = "ad_trade_need_offer",
 	Default = true,
 	Callback = function(state) F.tradeNeedOffer = state end,
 })
 
-tradeDriveBox:Slider({
+U.tradeDriveBox:Slider({
 	Text = "Min Partner Items",
 	Flag = "ad_trade_min_items",
 	Min = 1, Max = 20, Default = 1,
 	Callback = function(value) F.tradeMinItems = math.floor(tonumber(value) or 1) end,
 })
 
-tradeDriveBox:Button({
+U.tradeDriveBox:Button({
 	Text = "Stop And Cancel Trade",
 	Callback = function()
-		stopTrades()
+		H.stopTrades()
 		notify("Trade", "Stopped.", "success", 3)
 	end,
 })
 
-local tradeStatBox = TradeTab:Section("Session", "full")
+U.tradeStatBox = U.TradeTab:Section("Session", "full")
 
-local tradeStatLabel = tradeStatBox:Label("-", { Style = "bright" })
+U.tradeStatLabel = U.tradeStatBox:Label("-", { Style = "bright" })
 
 if Movement then
 
 Movement.Settings.WalkSpeedMode = "Velocity"
 Movement.Settings.JumpMode = "Humanoid"
 
-local flyBox = MovementTab:Section("Fly", 1)
+U.flyBox = U.MovementTab:Section("Fly", 1)
 
-flyBox:Toggle({
+U.flyBox:Toggle({
 	Text = "Fly",
 	Flag = "ad_fly",
 	Default = false,
@@ -4277,7 +4272,7 @@ flyBox:Toggle({
 })
 	:Keybind({ Default = "F", Flag = "ad_fly_key" })
 
-flyBox:Slider({
+U.flyBox:Slider({
 	Text = "Speed",
 	Flag = "ad_fly_speed",
 	Min = 1, Max = 20, Default = 2,
@@ -4285,9 +4280,9 @@ flyBox:Slider({
 	Callback = function(value) Movement.Settings.FlySpeed = value end,
 })
 
-local speedBox = MovementTab:Section("Speed", 2)
+U.speedBox = U.MovementTab:Section("Speed", 2)
 
-speedBox:Toggle({
+U.speedBox:Toggle({
 	Text = "Walk Speed",
 	Flag = "ad_walkspeed",
 	Default = false,
@@ -4296,7 +4291,7 @@ speedBox:Toggle({
 	end,
 })
 
-speedBox:Slider({
+U.speedBox:Slider({
 	Text = "Value",
 	Flag = "ad_walkspeed_value",
 	Min = 16, Max = 300, Default = 16,
@@ -4306,9 +4301,9 @@ speedBox:Slider({
 	end,
 })
 
-local otherBox = MovementTab:Section("Other", 1)
+U.otherBox = U.MovementTab:Section("Other", 1)
 
-otherBox:Toggle({
+U.otherBox:Toggle({
 	Text = "Noclip",
 	Flag = "ad_noclip",
 	Default = false,
@@ -4316,14 +4311,14 @@ otherBox:Toggle({
 })
 	:Keybind({ Default = "N", Flag = "ad_noclip_key" })
 
-otherBox:Toggle({
+U.otherBox:Toggle({
 	Text = "Infinite Jump",
 	Flag = "ad_infinite_jump",
 	Default = false,
 	Callback = function(state) Movement:InfiniteJump(state) end,
 })
 
-otherBox:Toggle({
+U.otherBox:Toggle({
 	Text = "Float",
 	Flag = "ad_float",
 	Default = false,
@@ -4341,19 +4336,19 @@ otherBox:Toggle({
 
 end
 
-local serverBox = MiscTab:Section("Server", 1)
+U.serverBox = U.MiscTab:Section("Server", 1)
 
-serverBox:Button({
+U.serverBox:Button({
 	Text = "Hop To High Population",
-	Callback = function() doHop(false) end,
+	Callback = function() H.doHop(false) end,
 })
 
-serverBox:Button({
+U.serverBox:Button({
 	Text = "Hop To Low Population",
-	Callback = function() doHop(true) end,
+	Callback = function() H.doHop(true) end,
 })
 
-serverBox:Button({
+U.serverBox:Button({
 	Text = "Rejoin Server",
 	Callback = function()
 		pcall(function()
@@ -4362,7 +4357,7 @@ serverBox:Button({
 	end,
 })
 
-serverBox:Button({
+U.serverBox:Button({
 	Text = "Clear Visited List",
 	Callback = function()
 		writeJson(userFile("visited"), {})
@@ -4373,11 +4368,11 @@ serverBox:Button({
 		panel:Label("Hopping remembers the servers you came from for 45 minutes so you do not loop.", { Style = "dim" })
 	end)
 
-local browserBox = MiscTab:Section("Browser", 2)
+U.browserBox = U.MiscTab:Section("Browser", 2)
 
 local browserApi = nil
 
-browserBox:Button({
+U.browserBox:Button({
 	Text = "Open Server Browser",
 	Callback = function()
 		if not browserApi then
@@ -4403,42 +4398,42 @@ browserBox:Button({
 	end,
 })
 
-local perfBox = MiscTab:Section("Performance", 1)
+U.perfBox = U.MiscTab:Section("Performance", 1)
 
-perfBox:Toggle({
+U.perfBox:Toggle({
 	Text = "FPS Boost",
 	Flag = "ad_fps",
 	Default = false,
 	Callback = function(state)
 		F.fpsOn = state
-		task.spawn(function() pcall(setFpsBoost, state) end)
+		task.spawn(function() pcall(H.setFpsBoost, state) end)
 	end,
 })
 	:Gear(function(panel)
 		panel:Label("Hides other bases, leaderboards and statues, kills particles and shadows. Reversible.", { Style = "dim" })
 	end)
 
-perfBox:Toggle({
+U.perfBox:Toggle({
 	Text = "Anti AFK",
 	Flag = "ad_afk",
 	Default = true,
 	Callback = function(state) F.afk = state end,
 })
 
-perfBox:Toggle({
+U.perfBox:Toggle({
 	Text = "Re-run On Teleport",
 	Flag = "ad_reexec",
 	Default = false,
 	Callback = function(state)
 		F.reexec = state
-		if state then armReexec() end
+		if state then H.armReexec() end
 	end,
 })
 	:Gear(function(panel)
 		panel:Label("Queues the Facility loader so the hub comes back after a hop.", { Style = "dim" })
 	end)
 
-local statsPanel = Library:Panel({
+U.statsPanel = Library:Panel({
 	Title = "anime dice",
 	Icon = "activity",
 	Width = 190,
@@ -4446,75 +4441,73 @@ local statsPanel = Library:Panel({
 	Visible = false,
 })
 
-statsPanel:SetVisible(false)
+U.statsPanel:SetVisible(false)
 
-statsPanel.Content:Label("money", { Style = "dim" })
-local panelMoney = statsPanel.Content:Label("-", { Style = "bright" })
+U.statsPanel.Content:Label("money", { Style = "dim" })
+U.panelMoney = U.statsPanel.Content:Label("-", { Style = "bright" })
 
-statsPanel.Content:Divider()
+U.statsPanel.Content:Divider()
 
-statsPanel.Content:Label("rolls", { Style = "dim" })
-local panelRolls = statsPanel.Content:Label("-", { Style = "bright" })
+U.statsPanel.Content:Label("rolls", { Style = "dim" })
+U.panelRolls = U.statsPanel.Content:Label("-", { Style = "bright" })
 
-statsPanel.Content:Divider()
+U.statsPanel.Content:Divider()
 
-statsPanel.Content:Label("sold", { Style = "dim" })
-local panelSold = statsPanel.Content:Label("-", { Style = "bright" })
+U.statsPanel.Content:Label("sold", { Style = "dim" })
+U.panelSold = U.statsPanel.Content:Label("-", { Style = "bright" })
 
-statsPanel.Content:Divider()
+U.statsPanel.Content:Divider()
 
-statsPanel.Content:Label("tower floor", { Style = "dim" })
-local panelFloor = statsPanel.Content:Label("-", { Style = "bright" })
+U.statsPanel.Content:Label("tower floor", { Style = "dim" })
+U.panelFloor = U.statsPanel.Content:Label("-", { Style = "bright" })
 
-statsPanel.Content:Divider()
+U.statsPanel.Content:Divider()
 
-statsPanel.Content:Label("status", { Style = "dim" })
-local panelStatus = statsPanel.Content:Label("Idle")
+U.statsPanel.Content:Label("status", { Style = "dim" })
+U.panelStatus = U.statsPanel.Content:Label("Idle")
 
-local panelBox = MiscTab:Section("Panel", 2)
+U.panelBox = U.MiscTab:Section("Panel", 2)
 
 local panelShown = false
 
-panelBox:Toggle({
+U.panelBox:Toggle({
 	Text = "Show Stats Panel",
 	Flag = "ad_panel",
 	Default = false,
 	Callback = function(state)
 		panelShown = state
-		statsPanel:SetVisible(state)
+		U.statsPanel:SetVisible(state)
 	end,
 })
 	:Keybind({ Default = "RightControl", Flag = "ad_panel_key" })
 
 onCleanup(function()
-	pcall(function() statsPanel:SetVisible(false) end)
+	pcall(function() U.statsPanel:SetVisible(false) end)
 end)
 
-local manageBox = HookTab:Section("Manage", 1)
+U.manageBox = U.HookTab:Section("Manage", 1)
 
-hookStatus = manageBox:Label("no webhook saved", { Style = "bright" })
+hookStatus = U.manageBox:Label("no webhook saved", { Style = "bright" })
 
-local promptForUrl
-
-local urlField = buildField(manageBox, {
+U.urlField = H.buildField(U.manageBox, {
 	Text = "Webhook URL",
 	Placeholder = "https://discord.com/api/webhooks/...",
 	Default = "",
 	Finished = true,
 	ClearOnFocus = false,
-	Callback = function(value) addHook(value, true) end,
+	Callback = function(value) H.addHook(value, true) end,
 })
 
-if urlField then
-	manageBox:Label("Paste the url above and press enter, then assign it below.", { Style = "dim" })
+if U.urlField then
+	U.manageBox:Label("Paste the url above and press enter, then assign it below.", { Style = "dim" })
 else
-	manageBox:Button({
+	U.manageBox:Button({
 		Text = "Add Webhook",
-		Callback = function() promptForUrl() end,
+		Callback = function() H.promptForUrl() end,
 	})
 end
 
-manageBox:Button({
+U.manageBox:Button({
 	Text = "Remove Last",
 	Callback = function()
 		if #Hooks.List == 0 then
@@ -4523,7 +4516,7 @@ manageBox:Button({
 		end
 
 		table.remove(Hooks.List)
-		saveHooks()
+		H.saveHooks()
 
 		for _, kind in ipairs(HOOK_KINDS) do
 			if Hooks.Picks[kind] > #Hooks.List then
@@ -4532,12 +4525,12 @@ manageBox:Button({
 			end
 		end
 
-		refreshHooks()
+		H.refreshHooks()
 		notify("Webhooks", "Last webhook removed.", "success", 3)
 	end,
 })
 
-manageBox:Button({
+U.manageBox:Button({
 	Text = "Clear All",
 	Callback = function()
 		table.clear(Hooks.List)
@@ -4549,58 +4542,58 @@ manageBox:Button({
 
 		if type(delfile) == "function" then pcall(delfile, HOOK_FILE) end
 
-		refreshHooks()
+		H.refreshHooks()
 		notify("Webhooks", "All webhooks cleared.", "success", 3)
 	end,
 })
 
-local assignBox = HookTab:Section("Assign", 2)
+U.assignBox = U.HookTab:Section("Assign", 2)
 
-hookDropdowns.Roll = assignBox:Dropdown({
+hookDropdowns.Roll = U.assignBox:Dropdown({
 	Text = "Roll Alerts",
 	Flag = "ad_hook_roll",
-	Options = hookChoices(),
+	Options = H.hookChoices(),
 	Default = "None",
 	Callback = function(value)
 		local index = tonumber(tostring(value or ""):match("^(%d+)%."))
-		assignHook("Roll", index or 0)
+		H.assignHook("Roll", index or 0)
 	end,
 })
 
-hookDropdowns.Stats = assignBox:Dropdown({
+hookDropdowns.Stats = U.assignBox:Dropdown({
 	Text = "Stat Reports",
 	Flag = "ad_hook_stats",
-	Options = hookChoices(),
+	Options = H.hookChoices(),
 	Default = "None",
 	Callback = function(value)
 		local index = tonumber(tostring(value or ""):match("^(%d+)%."))
-		assignHook("Stats", index or 0)
+		H.assignHook("Stats", index or 0)
 	end,
 })
 
-hookDropdowns.Tower = assignBox:Dropdown({
+hookDropdowns.Tower = U.assignBox:Dropdown({
 	Text = "Tower Clears",
 	Flag = "ad_hook_tower",
-	Options = hookChoices(),
+	Options = H.hookChoices(),
 	Default = "None",
 	Callback = function(value)
 		local index = tonumber(tostring(value or ""):match("^(%d+)%."))
-		assignHook("Tower", index or 0)
+		H.assignHook("Tower", index or 0)
 	end,
 })
 
-hookDropdowns.Trade = assignBox:Dropdown({
+hookDropdowns.Trade = U.assignBox:Dropdown({
 	Text = "Trade Results",
 	Flag = "ad_hook_trade",
-	Options = hookChoices(),
+	Options = H.hookChoices(),
 	Default = "None",
 	Callback = function(value)
 		local index = tonumber(tostring(value or ""):match("^(%d+)%."))
-		assignHook("Trade", index or 0)
+		H.assignHook("Trade", index or 0)
 	end,
 })
 
-assignBox:Button({
+U.assignBox:Button({
 	Text = "Test Assigned Hooks",
 	Callback = function()
 		local sent = 0
@@ -4628,16 +4621,16 @@ assignBox:Button({
 	end,
 })
 
-local rollHookBox = HookTab:Section("Roll Filter", 1)
+U.rollHookBox = U.HookTab:Section("Roll Filter", 1)
 
-rollHookBox:Toggle({
+U.rollHookBox:Toggle({
 	Text = "Roll Alerts",
 	Flag = "ad_roll_hook",
 	Default = false,
 	Callback = function(state) F.rollHookOn = state end,
 })
 
-local rollMinField = buildField(rollHookBox, {
+U.rollMinField = H.buildField(U.rollHookBox, {
 	Text = "Min Chance 1 In",
 	Placeholder = "e.g. 1t",
 	Default = "",
@@ -4655,8 +4648,8 @@ local rollMinField = buildField(rollHookBox, {
 	end,
 })
 
-if not rollMinField then
-	rollHookBox:Slider({
+if not U.rollMinField then
+	U.rollHookBox:Slider({
 		Text = "Min Chance 1 In",
 		Flag = "ad_roll_hook_min",
 		Min = 0, Max = 1000, Default = 0,
@@ -4666,27 +4659,27 @@ if not rollMinField then
 	})
 end
 
-rollHookBox:Dropdown({
+U.rollHookBox:Dropdown({
 	Text = "Only These Grades",
 	Flag = "ad_roll_hook_grades",
 	Options = GRADE_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "Any grade",
-	Callback = function(selected) F.rollHookGrades = selectionSet(selected) end,
+	Callback = function(selected) F.rollHookGrades = H.selectionSet(selected) end,
 })
 
-rollHookBox:Dropdown({
+U.rollHookBox:Dropdown({
 	Text = "Only These Traits",
 	Flag = "ad_roll_hook_traits",
 	Options = TRAIT_NAMES,
 	Default = {},
 	Multi = true,
 	Empty = "Any trait",
-	Callback = function(selected) F.rollHookTraits = selectionSet(selected) end,
+	Callback = function(selected) F.rollHookTraits = H.selectionSet(selected) end,
 })
 
-rollHookBox:Toggle({
+U.rollHookBox:Toggle({
 	Text = "Mutated Only",
 	Flag = "ad_roll_hook_mut",
 	Default = false,
@@ -4696,16 +4689,16 @@ rollHookBox:Toggle({
 		panel:Label("With no filter set, nothing is sent. Set a minimum chance, a grade, a trait or mutated only.", { Style = "dim" })
 	end)
 
-local statHookBox = HookTab:Section("Reports", 2)
+U.statHookBox = U.HookTab:Section("Reports", 2)
 
-statHookBox:Toggle({
+U.statHookBox:Toggle({
 	Text = "Stat Reports",
 	Flag = "ad_stat_hook",
 	Default = false,
 	Callback = function(state) F.statHookOn = state end,
 })
 
-statHookBox:Slider({
+U.statHookBox:Slider({
 	Text = "Every",
 	Flag = "ad_stat_hook_interval",
 	Min = 60, Max = 3600, Default = 300,
@@ -4713,31 +4706,31 @@ statHookBox:Slider({
 	Callback = function(value) F.statHookInterval = tonumber(value) or 300 end,
 })
 
-statHookBox:Dropdown({
+U.statHookBox:Dropdown({
 	Text = "Fields",
 	Flag = "ad_stat_hook_fields",
 	Options = STAT_FIELDS,
 	Default = {},
 	Multi = true,
 	Empty = "Every field",
-	Callback = function(selected) F.statHookFields = selectionSet(selected) end,
+	Callback = function(selected) F.statHookFields = H.selectionSet(selected) end,
 })
 
-statHookBox:Toggle({
+U.statHookBox:Toggle({
 	Text = "Tower Alerts",
 	Flag = "ad_tower_hook",
 	Default = false,
 	Callback = function(state) F.towerHookOn = state end,
 })
 
-statHookBox:Toggle({
+U.statHookBox:Toggle({
 	Text = "Trade Alerts",
 	Flag = "ad_trade_hook",
 	Default = false,
 	Callback = function(state) F.tradeHookOn = state end,
 })
 
-statHookBox:Button({
+U.statHookBox:Button({
 	Text = "Send Stats Now",
 	Callback = function()
 		if not Hooks.Stats then
@@ -4745,14 +4738,14 @@ statHookBox:Button({
 			return
 		end
 
-		task.spawn(sendStatsHook)
+		task.spawn(H.sendStatsHook)
 		notify("Webhooks", "Report sent.", "success", 3)
 	end,
 })
 
 local HOOK_GUI = "FacilityWebhookPrompt"
 
-local function hookGuiParent()
+function H.hookGuiParent()
 	if type(gethui) == "function" then
 		local ok, host = pcall(gethui)
 		if ok and host then return host end
@@ -4764,8 +4757,8 @@ local function hookGuiParent()
 	return LocalPlayer:WaitForChild("PlayerGui")
 end
 
-function promptForUrl()
-	local parent = hookGuiParent()
+function H.promptForUrl()
+	local parent = H.hookGuiParent()
 
 	local existing = parent:FindFirstChild(HOOK_GUI)
 	if existing then pcall(function() existing:Destroy() end) end
@@ -4877,9 +4870,9 @@ function promptForUrl()
 	local function submit()
 		local value = field.Text
 
-		if validUrl(value) then
+		if H.validUrl(value) then
 			close()
-			addHook(value)
+			H.addHook(value)
 		else
 			field.Text = ""
 			field.PlaceholderText = "not a webhook url, try again"
@@ -4904,16 +4897,16 @@ function promptForUrl()
 end
 
 onCleanup(function()
-	local ok, parent = pcall(hookGuiParent)
+	local ok, parent = pcall(H.hookGuiParent)
 	if not ok or not parent then return end
 
 	local existing = parent:FindFirstChild(HOOK_GUI)
 	if existing then pcall(function() existing:Destroy() end) end
 end)
 
-refreshHooks()
+H.refreshHooks()
 
-local function startLoop(delayFn, body)
+function H.startLoop(delayFn, body)
 	task.spawn(function()
 		while Alive do
 			task.wait(math.max(0.1, tonumber(delayFn()) or 1))
@@ -4922,60 +4915,60 @@ local function startLoop(delayFn, body)
 	end)
 end
 
-startLoop(function() return F.collectDelay end, function()
-	if F.collect then doCollect() end
+H.startLoop(function() return F.collectDelay end, function()
+	if F.collect then H.doCollect() end
 end)
 
-startLoop(function() return F.levelDelay end, function()
-	if F.levelup then doLevelUp() end
+H.startLoop(function() return F.levelDelay end, function()
+	if F.levelup then H.doLevelUp() end
 end)
 
-startLoop(function() return F.placeDelay end, function()
-	if F.placeBest then doPlaceBest() end
+H.startLoop(function() return F.placeDelay end, function()
+	if F.placeBest then H.doPlaceBest() end
 end)
 
-startLoop(function() return F.upgradeDelay end, function()
-	if F.upgrades then doUpgrades() end
+H.startLoop(function() return F.upgradeDelay end, function()
+	if F.upgrades then H.doUpgrades() end
 end)
 
-startLoop(function() return F.rebirthDelay end, function()
-	if F.rebirth then doRebirth() end
+H.startLoop(function() return F.rebirthDelay end, function()
+	if F.rebirth then H.doRebirth() end
 end)
 
-startLoop(function() return F.diceDelay end, function()
-	if F.buyDice or F.equipDice then doDice() end
+H.startLoop(function() return F.diceDelay end, function()
+	if F.buyDice or F.equipDice then H.doDice() end
 end)
 
-startLoop(function() return F.potionDelay end, function()
-	if F.potionAuto then doPotion() end
+H.startLoop(function() return F.potionDelay end, function()
+	if F.potionAuto then H.doPotion() end
 end)
 
-startLoop(function() return F.gradeDelay end, function()
-	if F.gradeAuto then rerollTick("grade") end
+H.startLoop(function() return F.gradeDelay end, function()
+	if F.gradeAuto then H.rerollTick("grade") end
 end)
 
-startLoop(function() return F.traitDelay end, function()
-	if F.traitAuto then rerollTick("trait") end
+H.startLoop(function() return F.traitDelay end, function()
+	if F.traitAuto then H.rerollTick("trait") end
 end)
 
-startLoop(function() return F.sellDelay end, function()
-	if F.sellAuto then doSell(false) end
+H.startLoop(function() return F.sellDelay end, function()
+	if F.sellAuto then H.doSell(false) end
 end)
 
-startLoop(function() return 3 end, function()
+H.startLoop(function() return 3 end, function()
 	if F.hideRolls then
-		syncRollHidden()
-		rollHideBackup(true)
+		H.syncRollHidden()
+		H.rollHideBackup(true)
 	end
 end)
 
 task.spawn(function()
 	task.wait(8)
-	if F.codesAuto and Alive then pcall(doRedeemCodes) end
+	if F.codesAuto and Alive then pcall(H.doRedeemCodes) end
 
 	while Alive do
 		task.wait(math.max(60, tonumber(F.codesDelay) or 300))
-		if F.codesAuto then pcall(doRedeemCodes) end
+		if F.codesAuto then pcall(H.doRedeemCodes) end
 	end
 end)
 
@@ -4985,11 +4978,11 @@ task.spawn(function()
 	while Alive do
 		task.wait(30)
 
-		if F.claimQuests then pcall(doClaimQuests) end
-		if F.smartSell then pcall(applySmartSell) end
-		if F.smartLevel then pcall(applySmartLevel) end
+		if F.claimQuests then pcall(H.doClaimQuests) end
+		if F.smartSell then pcall(H.applySmartSell) end
+		if F.smartLevel then pcall(H.applySmartLevel) end
 
-		pcall(statsHookTick)
+		pcall(H.statsHookTick)
 
 		if F.sellSync and F.sellThreshold > 0 and os.clock() - lastSync > 120 then
 			lastSync = os.clock()
@@ -5007,7 +5000,7 @@ task.spawn(function()
 
 		if F.tower and not running then
 			running = true
-			task.spawn(doTowerLoop)
+			task.spawn(H.doTowerLoop)
 		elseif not F.tower then
 			running = false
 		end
@@ -5022,7 +5015,7 @@ task.spawn(function()
 
 		if F.tradeAuto and not running then
 			running = true
-			task.spawn(doTradeLoop)
+			task.spawn(H.doTradeLoop)
 		elseif not F.tradeAuto then
 			running = false
 		end
@@ -5033,17 +5026,17 @@ task.spawn(function()
 	while Alive do
 		task.wait(0.5)
 
-		if F.tradeAutoGo and not tradeDriving and tradeScreenOpen() then
-			task.spawn(driveTrade)
+		if F.tradeAutoGo and not tradeDriving and H.tradeScreenOpen() then
+			task.spawn(H.driveTrade)
 		end
 	end
 end)
 
-local function sortedInventory()
+function H.sortedInventory()
 	local rows = {}
 	local placed = placedUnitKeys()
-	local tower = towerTeamKeys()
-	local equipped = equippedKey()
+	local tower = H.towerTeamKeys()
+	local equipped = H.equippedKey()
 
 	for key, entry in pairs(inventory()) do
 		if isUnitEntry(entry) then
@@ -5075,10 +5068,10 @@ local function sortedInventory()
 
 	table.sort(rows, function(a, b)
 		if mode == "Grade" then
-			local ga, gb = gradeRank(a.grade), gradeRank(b.grade)
+			local ga, gb = H.gradeRank(a.grade), H.gradeRank(b.grade)
 			if ga ~= gb then return ga > gb end
 		elseif mode == "Trait" then
-			local ta, tb = traitRank(a.trait), traitRank(b.trait)
+			local ta, tb = H.traitRank(a.trait), H.traitRank(b.trait)
 			if ta ~= tb then return ta > tb end
 		elseif mode == "Level" then
 			if a.level ~= b.level then return a.level > b.level end
@@ -5103,15 +5096,15 @@ task.spawn(function()
 		pcall(function()
 			if Status ~= shown.status then
 				shown.status = Status
-				statusLabel:Set(Status)
+				U.statusLabel:Set(Status)
 			end
 
 			local wallet = string.format("Money %s  ·  Rolls %s  ·  Rebirth %s",
-				fmt(money()), fmt(rollCount()), tostring(rebirthCount()))
+				fmt(money()), fmt(H.rollCount()), tostring(H.rebirthCount()))
 
 			if wallet ~= shown.wallet then
 				shown.wallet = wallet
-				walletLabel:Set(wallet)
+				U.walletLabel:Set(wallet)
 			end
 
 			local currency = string.format("Collected %s  ·  Sold %d  ·  Levelled %d  ·  Upgrades %d",
@@ -5119,15 +5112,15 @@ task.spawn(function()
 
 			if currency ~= shown.currency then
 				shown.currency = currency
-				currencyLabel:Set(currency)
+				U.currencyLabel:Set(currency)
 			end
 
 			local reroll = string.format("Gems %s  ·  Trait Reroll %s",
-				fmt(currencyAmount("Gems")), fmt(currencyAmount("Trait Reroll")))
+				fmt(H.currencyAmount("Gems")), fmt(H.currencyAmount("Trait Reroll")))
 
 			if reroll ~= shown.reroll then
 				shown.reroll = reroll
-				rerollLabel:Set(reroll)
+				U.rerollLabel:Set(reroll)
 			end
 
 			local threshold = F.sellThreshold > 0
@@ -5136,7 +5129,7 @@ task.spawn(function()
 
 			if threshold ~= shown.threshold then
 				shown.threshold = threshold
-				thresholdLabel:Set(threshold)
+				U.thresholdLabel:Set(threshold)
 			end
 
 			local protectedTotal = 0
@@ -5146,16 +5139,16 @@ task.spawn(function()
 
 			if protectedText ~= shown.protected then
 				shown.protected = protectedText
-				protectCount:Set(protectedText)
+				U.protectCount:Set(protectedText)
 			end
 
 			local tradeText = string.format("Requests %d  ·  Opened %d  ·  %s",
 				Tally.tradesSent, Tally.tradesOpened,
-				tradeScreenOpen() and ("in trade with " .. tostring(tradePartner or "?")) or "idle")
+				H.tradeScreenOpen() and ("in trade with " .. tostring(tradePartner or "?")) or "idle")
 
 			if tradeText ~= shown.trade then
 				shown.trade = tradeText
-				tradeStatLabel:Set(tradeText)
+				U.tradeStatLabel:Set(tradeText)
 			end
 		end)
 
@@ -5172,17 +5165,17 @@ task.spawn(function()
 					table.insert(rows, { stamp or "-", body or line })
 				end
 
-				logTable:SetRows(rows)
+				U.logTable:SetRows(rows)
 			end)
 		end
 
 		if panelShown then
 			pcall(function()
-				panelMoney:Set(fmt(money()))
-				panelRolls:Set(fmt(rollCount()))
-				panelSold:Set(tostring(Tally.sold))
-				panelFloor:Set(tostring(towerFloor))
-				panelStatus:Set(Status)
+				U.panelMoney:Set(fmt(money()))
+				U.panelRolls:Set(fmt(H.rollCount()))
+				U.panelSold:Set(tostring(Tally.sold))
+				U.panelFloor:Set(tostring(towerFloor))
+				U.panelStatus:Set(Status)
 			end)
 		end
 	end
@@ -5193,7 +5186,7 @@ task.spawn(function()
 		task.wait(2)
 
 		pcall(function()
-			local list, data = unlockedSlots()
+			local list, data = H.unlockedSlots()
 			local rows = {}
 
 			for _, slot in ipairs(list) do
@@ -5220,16 +5213,16 @@ task.spawn(function()
 					level,
 					chance,
 					pending,
-					slotLocked(slot) and "locked" or "open",
-					Style = slotLocked(slot) and "warning" or (unit == "-" and "dim" or nil),
+					H.slotLocked(slot) and "locked" or "open",
+					Style = H.slotLocked(slot) and "warning" or (unit == "-" and "dim" or nil),
 				})
 			end
 
-			slotTable:SetRows(rows)
+			U.slotTable:SetRows(rows)
 		end)
 
 		pcall(function()
-			local rows = sortedInventory()
+			local rows = H.sortedInventory()
 			local shown = {}
 
 			for index = 1, math.min(16, #rows) do
@@ -5247,8 +5240,8 @@ task.spawn(function()
 				})
 			end
 
-			invTable:SetRows(shown)
-			invCount:Set(#rows .. " unit" .. (#rows == 1 and "" or "s") .. " owned")
+			U.invTable:SetRows(shown)
+			U.invCount:Set(#rows .. " unit" .. (#rows == 1 and "" or "s") .. " owned")
 		end)
 
 		pcall(function()
@@ -5256,8 +5249,8 @@ task.spawn(function()
 
 			if G.DiceMod then
 				local all = G.DiceMod.GetAll()
-				local owned = ownedDice()
-				local current = currentDice()
+				local owned = H.ownedDice()
+				local current = H.currentDice()
 				local list = {}
 
 				for name, def in pairs(all) do
@@ -5281,12 +5274,12 @@ task.spawn(function()
 				end
 			end
 
-			diceTable:SetRows(rows)
+			U.diceTable:SetRows(rows)
 		end)
 
 		pcall(function()
 			local rows = {}
-			local active = activePotions()
+			local active = H.activePotions()
 			local entries = G.BoostConfig and G.BoostConfig.entries or {}
 
 			for name, left in pairs(active) do
@@ -5296,16 +5289,16 @@ task.spawn(function()
 					name,
 					tostring(def and def.category or "-"),
 					tostring(def and def.tier or "-"),
-					durationText(left),
+					H.durationText(left),
 				})
 			end
 
 			table.sort(rows, function(a, b) return a[1] < b[1] end)
 
-			local luck = effectiveLuck()
+			local luck = H.effectiveLuck()
 			table.insert(rows, 1, { "effective luck", "-", "-", fmt(luck), Style = "bright" })
 
-			buffTable:SetRows(rows)
+			U.buffTable:SetRows(rows)
 		end)
 
 		pcall(function()
@@ -5331,7 +5324,7 @@ task.spawn(function()
 				table.insert(rows, { "Other drops", table.concat(extras, ", ") })
 			end
 
-			towerStatTable:SetRows(rows)
+			U.towerStatTable:SetRows(rows)
 		end)
 	end
 end)
@@ -5381,11 +5374,11 @@ InterfaceManager:SetFolder("Facility")
 ThemeManager:SetFolder("Facility")
 SaveManager:SetFolder("Facility/113290951185459")
 
-InterfaceManager:BuildInterfaceSection(Settings, 1)
-SaveManager:BuildConfigSection(Settings, 2)
+InterfaceManager:BuildInterfaceSection(U.Settings, 1)
+SaveManager:BuildConfigSection(U.Settings, 2)
 ThemeManager:Mount(Window)
 
-Window:SetTab(MainTab)
+Window:SetTab(U.MainTab)
 
 Library:Notify("Facility", "Loaded.", 4)
 
@@ -5402,7 +5395,7 @@ end
 
 task.spawn(function()
 	task.wait(2)
-	if F.reexec then armReexec() end
+	if F.reexec then H.armReexec() end
 end)
 
 local libraryDestroy = Library.Destroy
