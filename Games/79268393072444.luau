@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local FH      = shared.Facility
 local Library = FH.Library
 local Webhook = FH.Webhook
@@ -772,26 +769,48 @@ function H.doBuy()
 	Busy.buy = true
 
 	pcall(function()
-		local purchase = H.nextPurchase()
+		local purchase, id = H.nextPurchase()
 		if not purchase then return end
 
 		if F.buyForever then
-			local instance = nil
-			pcall(function() instance = purchase.Instance end)
+			-- .Instance requires Plugin capability — find the model in the plot directly
+			local remote = nil
 
-			local remote = instance and instance:FindFirstChild("Purchase", true)
+			if Plot then
+				local root = Plot:FindFirstChild("Purchases")
+
+				if root then
+					-- match by purchase id (key in PurchaseOrder)
+					local model = root:FindFirstChild(tostring(id), true)
+
+					if model then
+						remote = model:FindFirstChild("Purchase", true)
+
+						-- fallback: any RemoteFunction one level down
+						if not remote then
+							for _, child in ipairs(model:GetDescendants()) do
+								if child:IsA("RemoteFunction") then
+									remote = child
+									break
+								end
+							end
+						end
+					end
+				end
+			end
 
 			if remote and remote:IsA("RemoteFunction") then
 				local ok = pcall(function() remote:InvokeServer(true) end)
+
 				if ok then
 					Tally.bought = Tally.bought + 1
+					Busy.buy = false
 					return
 				end
 			end
 		end
 
 		local ok = pcall(function() purchase:TryPurchaseAsync() end)
-
 		if ok then Tally.bought = Tally.bought + 1 end
 	end)
 
