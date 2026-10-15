@@ -1,6 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
-
 local FH      = shared.Facility
 local Library = FH.Library
 local Entity  = FH.Entity
@@ -1017,6 +1014,25 @@ Esp.getWeapon = function(entity)
 	return tool and tool.Name or "Fists"
 end
 
+H.BODY_PARTS = {
+	Head = true, UpperTorso = true, LowerTorso = true, Torso = true, HumanoidRootPart = false,
+	LeftUpperArm = true, LeftLowerArm = true, LeftHand = true, RightUpperArm = true, RightLowerArm = true, RightHand = true,
+	LeftUpperLeg = true, LeftLowerLeg = true, LeftFoot = true, RightUpperLeg = true, RightLowerLeg = true, RightFoot = true,
+	["Left Arm"] = true, ["Right Arm"] = true, ["Left Leg"] = true, ["Right Leg"] = true,
+}
+
+Esp.getBoxParts = function(model)
+	local parts = {}
+	for _, child in ipairs(model:GetChildren()) do
+		if child:IsA("BasePart") and H.BODY_PARTS[child.Name] then table.insert(parts, child) end
+	end
+	if #parts == 0 then
+		local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChildWhichIsA("BasePart")
+		if root then table.insert(parts, root) end
+	end
+	return parts
+end
+
 shared.FacilityCleanup = function()
 	F.silent, F.trigger = false, false
 	F.noRecoil, F.noSpread, F.rapidFire, F.autoFire, F.fastReload = false, false, false, false, false
@@ -1049,6 +1065,7 @@ end
 H.setTeamMode("Game")
 Esp.teamSettings.enemy.enabled = true
 Esp.teamSettings.friendly.enabled = false
+Esp.sharedSettings.bodyPartsOnly = true
 
 function H.T(section, text, flag, default, callback, hint)
 	return section:Toggle({
@@ -1387,6 +1404,9 @@ U.espBox:Toggle({
 		H.D(panel, "Style", "sd_esp_box_style", { "2D", "3D" }, "2D", function(value)
 			H.espSet("box", value == "2D")
 			H.espSet("box3d", value == "3D")
+		end)
+		H.D(panel, "Fit", "sd_esp_box_fit", { "Body", "Full Model" }, "Body", function(value)
+			Esp.sharedSettings.bodyPartsOnly = value == "Body"
 		end)
 	end)
 
