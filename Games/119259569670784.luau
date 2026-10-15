@@ -1,5 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
 
 local FH      = shared.Facility
 local Library = FH.Library
@@ -78,6 +76,10 @@ local F = {
 	silentWall = true, silentTeam = true, silentBots = true, silentHitChance = 100,
 	silentRespect = true, silentMaxDistance = 3000,
 	rapid = false,
+	trigger = false, triggerMode = "Crosshair", triggerFov = 12, triggerKey = nil,
+	triggerRequireAim = false, triggerHitChance = 100, triggerReaction = 0.05,
+	triggerCooldown = 0.3, triggerHold = 0.06, triggerWall = true, triggerTeam = true,
+	triggerParts = { "Head", "UpperTorso" }, triggerMaxDistance = 3000,
 	chams = false, chamsAllies = false, chamsMax = 24,
 	chamsVisible = Color3.fromRGB(255, 70, 70), chamsHidden = Color3.fromRGB(255, 200, 60),
 	chamsAlly = Color3.fromRGB(80, 200, 120), chamsThrough = true,
@@ -1113,7 +1115,6 @@ end
 
 if Aimbot then
 	local originalKeyDown = Aimbot._keyDown
-	local originalTriggerPick = Aimbot._triggerPick
 
 	function Aimbot:_keyDown()
 		if F.aimAlways or S.mobileHeld then return true end
@@ -1125,17 +1126,18 @@ if Aimbot then
 		return H.hitbox(record.Character, name) or record.Head or record.RootPart
 	end
 
-	function Aimbot:_triggerPartOf(record)
-		local names = self.Settings.Trigger.Parts
-		local first = type(names) == "table" and names[1] or "Head"
-		return H.hitbox(record.Character, first) or record.Head or record.RootPart
-	end
-
 	function Aimbot:_visiblePoint(record, part, wallCheck, multipoint)
 		if wallCheck == nil then wallCheck = self.Settings.WallCheck end
 		if multipoint == nil then multipoint = self.Settings.Multipoint end
 
-		local points = self:_points(part, multipoint)
+		local points = { part.Position }
+
+		if multipoint then
+			local half = part.Size * 0.375
+			for _, offset in ipairs({ Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 1, 0), Vector3.new(0, -1, 0) }) do
+				table.insert(points, part.CFrame:PointToWorldSpace(offset * half))
+			end
+		end
 
 		if not wallCheck then
 			return points[math.random(1, #points)]
@@ -1155,34 +1157,16 @@ if Aimbot then
 		return H.canSee(record, part.Position)
 	end
 
-	function Aimbot:_triggerPick(config)
-		if config.Mode ~= "Crosshair" then
-			return originalTriggerPick(self, config)
-		end
-
-		local camera = workspace.CurrentCamera
-		if not camera then return nil, nil end
-
-		local params = H.rayParams
-		params.FilterDescendantsInstances = H.ignoreList()
-
-		local center = camera.ViewportSize / 2
-		local ray = camera:ViewportPointToRay(center.X, center.Y)
-		local hit = workspace:Raycast(ray.Origin, ray.Direction * config.MaxDistance, params)
-		if not hit then return nil, nil end
-
-		local ent = H.ownerOf(hit.Instance)
-		if not ent then return nil, nil end
-
-		return ent, self:_triggerPartOf(ent)
-	end
-
 	function Aimbot:_aim(position)
 		local camera = workspace.CurrentCamera
 		if not camera then return end
 
 		local smooth = math.clamp(tonumber(self.Settings.Smoothness) or 0.25, 0.01, 1)
-		local eased = self:_eased(smooth)
+		local eased = smooth
+		if type(self._eased) == "function" then
+			local ok, value = pcall(self._eased, self, smooth)
+			if ok and type(value) == "number" then eased = value end
+		end
 
 		if type(mousemoverel) == "function" then
 			local point, onScreen = camera:WorldToViewportPoint(position)
@@ -1199,6 +1183,144 @@ if Aimbot then
 		camera.CFrame = cframe:Lerp(CFrame.lookAt(cframe.Position, position), eased)
 	end
 end
+
+function H.keyHeld(key)
+	if typeof(key) ~= "EnumItem" then return true end
+	if H.typing() then return false end
+
+	local ok, down = pcall(function()
+		if key.EnumType == Enum.UserInputType then
+			return UserInputService:IsMouseButtonPressed(key)
+		end
+		return UserInputService:IsKeyDown(key)
+	end)
+
+	return ok and down == true
+end
+
+function H.triggerPart(ent)
+	for _, name in ipairs(F.triggerParts) do
+		local part = H.hitbox(ent.Character, name)
+		if part then return part end
+	end
+	return ent.Head or ent.RootPart
+end
+
+function H.triggerTarget()
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
+
+	local center = camera.ViewportSize / 2
+
+	if F.triggerMode == "Crosshair" then
+		local params = H.rayParams
+		params.FilterDescendantsInstances = H.ignoreList()
+
+		local ray = camera:ViewportPointToRay(center.X, center.Y)
+		local hit = workspace:Raycast(ray.Origin, ray.Direction * F.triggerMaxDistance, params)
+		if not hit then return nil end
+
+		return H.ownerOf(hit.Instance)
+	end
+
+	if F.triggerMode == "Target" then
+		if not (Aimbot and Aimbot.Target) then return nil end
+		return Entity:Get(Aimbot.Target)
+	end
+
+	local radius = F.triggerFov > 0 and F.triggerFov or 12
+	local best, bestDistance = nil, radius
+
+	for _, ent in pairs(Entity.Entities) do
+		if ent.Alive then
+			local part = H.triggerPart(ent)
+			if part then
+				local point, onScreen = camera:WorldToViewportPoint(part.Position)
+				if onScreen and point.Z > 0 then
+					local distance = (Vector2.new(point.X, point.Y) - center).Magnitude
+					if distance <= bestDistance then best, bestDistance = ent, distance end
+				end
+			end
+		end
+	end
+
+	return best
+end
+
+function H.triggerValid(ent)
+	if not ent or not ent.Alive then return false end
+	if F.triggerTeam and not ent.Targetable then return false end
+
+	local part = H.triggerPart(ent)
+	if not part then return false end
+
+	local camera = workspace.CurrentCamera
+	if (camera.CFrame.Position - part.Position).Magnitude > F.triggerMaxDistance then return false end
+
+	if F.triggerWall and not H.canSee(ent, part.Position) then return false end
+
+	return true
+end
+
+function H.click()
+	if S.clicking then return end
+	S.clicking = true
+
+	task.spawn(function()
+		pcall(function()
+			if type(mouse1press) == "function" and type(mouse1release) == "function" then
+				mouse1press()
+				task.wait(F.triggerHold)
+				mouse1release()
+			else
+				local input = game:GetService("VirtualInputManager")
+				input:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+				task.wait(F.triggerHold)
+				input:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+			end
+		end)
+		S.clicking = false
+	end)
+end
+
+H.track(RunService.Heartbeat:Connect(function()
+	if not (alive() and F.trigger) then
+		S.triggerSince = nil
+		return
+	end
+
+	if F.triggerRequireAim and not (Aimbot and Aimbot.Active) then
+		S.triggerSince = nil
+		return
+	end
+
+	if F.triggerKey and not H.keyHeld(F.triggerKey) then
+		S.triggerSince = nil
+		return
+	end
+
+	local ent = H.triggerTarget()
+
+	if not H.triggerValid(ent) then
+		S.triggerSince = nil
+		return
+	end
+
+	local now = os.clock()
+
+	if S.triggerSince == nil or S.triggerEnt ~= ent then
+		S.triggerSince = now
+		S.triggerEnt = ent
+		S.triggerRolled = F.triggerHitChance >= 100 or math.random(1, 100) <= F.triggerHitChance
+	end
+
+	if now - S.triggerSince < F.triggerReaction then return end
+	if not S.triggerRolled then return end
+	if now - (S.triggerLast or 0) < F.triggerCooldown then return end
+
+	S.triggerLast = now
+	H.click()
+end))
 
 shared.FacilityCleanup = function()
 	pcall(H.unhookAll)
@@ -1326,7 +1448,9 @@ U.aimBox:Keybind({
 			MB2 = Enum.UserInputType.MouseButton2,
 			MB3 = Enum.UserInputType.MouseButton3,
 		}
-		Aimbot:SetKey(map[key] or Enum.KeyCode[key] or Enum.UserInputType.MouseButton2)
+		local chosen = map[key] or Enum.KeyCode[key] or Enum.UserInputType.MouseButton2
+		Aimbot.Settings.Key = chosen
+		pcall(function() Aimbot:SetKey(chosen) end)
 	end,
 })
 
@@ -1469,7 +1593,10 @@ U.fovBox:Slider({
 	Text = "Radius",
 	Flag = "sa_aim_fov",
 	Min = 20, Max = 600, Default = 220,
-	Callback = function(value) Aimbot:SetFov(value) end,
+	Callback = function(value)
+		Aimbot.Settings.Fov = value
+		pcall(function() Aimbot:SetFov(value) end)
+	end,
 })
 
 U.fovBox:Slider({
@@ -1602,33 +1729,33 @@ end
 
 function H.applyTriggerKey()
 	if not Library.Flags["sa_trigger_use_key"] then
-		Aimbot.Settings.Trigger.Key = nil
+		F.triggerKey = nil
 		return
 	end
 
-	Aimbot.Settings.Trigger.Key = H.triggerKeyEnum(Library.Flags["sa_trigger_key"] or "C")
+	F.triggerKey = H.triggerKeyEnum(Library.Flags["sa_trigger_key"] or "C")
 end
 
 U.triggerBox:Toggle({
 	Text = "Enable",
 	Flag = "sa_trigger_enable",
 	Default = false,
-	Hint = "fires on its own when an enemy sits under your crosshair, needs the aimbot enabled",
-	Callback = function(state) Aimbot.Settings.TriggerBot = state end,
+	Hint = "fires on its own when an enemy sits under your crosshair",
+	Callback = function(state) F.trigger = state end,
 })
 	:Gear(function(panel)
 		panel:Toggle({
 			Text = "Require Aim",
 			Flag = "sa_trigger_require_aim",
 			Default = false,
-			Callback = function(state) Aimbot.Settings.Trigger.RequireAim = state end,
+			Callback = function(state) F.triggerRequireAim = state end,
 		})
 		panel:Slider({
 			Text = "Hit Chance",
 			Flag = "sa_trigger_hit_chance",
 			Min = 0, Max = 100, Default = 100,
 			Suffix = "%",
-			Callback = function(value) Aimbot.Settings.Trigger.HitChance = value end,
+			Callback = function(value) F.triggerHitChance = tonumber(value) or 100 end,
 		})
 	end)
 
@@ -1637,14 +1764,14 @@ U.triggerBox:Dropdown({
 	Flag = "sa_trigger_mode",
 	Options = { "Crosshair", "Target", "Fov" },
 	Default = "Crosshair",
-	Callback = function(value) Aimbot.Settings.Trigger.Mode = value end,
+	Callback = function(value) F.triggerMode = tostring(value) end,
 })
 
 U.triggerBox:Slider({
 	Text = "Fov",
 	Flag = "sa_trigger_fov",
 	Min = 0, Max = 400, Default = 0,
-	Callback = function(value) Aimbot.Settings.Trigger.Fov = value end,
+	Callback = function(value) F.triggerFov = tonumber(value) or 0 end,
 })
 
 U.triggerBox:Toggle({
@@ -1668,7 +1795,7 @@ U.triggerBox:Slider({
 	Min = 0, Max = 0.5, Default = 0.05,
 	Decimals = 2,
 	Suffix = " s",
-	Callback = function(value) Aimbot.Settings.Trigger.ReactionTime = value end,
+	Callback = function(value) F.triggerReaction = tonumber(value) or 0 end,
 })
 
 U.triggerBox:Slider({
@@ -1677,21 +1804,21 @@ U.triggerBox:Slider({
 	Min = 0.05, Max = 2, Default = 0.3,
 	Decimals = 2,
 	Suffix = " s",
-	Callback = function(value) Aimbot.Settings.TriggerCooldown = value end,
+	Callback = function(value) F.triggerCooldown = tonumber(value) or 0.3 end,
 })
 
 U.triggerBox:Toggle({
 	Text = "Wall Check",
 	Flag = "sa_trigger_wall_check",
 	Default = true,
-	Callback = function(state) Aimbot.Settings.Trigger.WallCheck = state end,
+	Callback = function(state) F.triggerWall = state end,
 })
 
 U.triggerBox:Toggle({
 	Text = "Team Check",
 	Flag = "sa_trigger_team_check",
 	Default = true,
-	Callback = function(state) Aimbot.Settings.Trigger.TeamCheck = state end,
+	Callback = function(state) F.triggerTeam = state end,
 })
 
 U.triggerBox:Dropdown({
@@ -1703,7 +1830,7 @@ U.triggerBox:Dropdown({
 	Empty = "Head",
 	Callback = function(selected)
 		if #selected == 0 then selected = { "Head" } end
-		Aimbot.Settings.Trigger.Parts = selected
+		F.triggerParts = selected
 	end,
 })
 
