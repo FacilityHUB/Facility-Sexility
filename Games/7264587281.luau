@@ -1,3 +1,6 @@
+--!nocheck
+--!nolint UnknownGlobal
+
 local FH      = shared.Facility
 local Library = FH.Library
 local Entity  = FH.Entity
@@ -87,6 +90,7 @@ local F = {
 
 	chams = false, chamsVisible = Color3.fromRGB(255, 255, 255), chamsHidden = Color3.fromRGB(140, 140, 140),
 	chamsAllies = false, chamsAlly = Color3.fromRGB(80, 200, 120), chamsThrough = true,
+	tightBox = true,
 	headDots = false, headDotColor = Color3.fromRGB(255, 255, 255),
 }
 
@@ -1033,6 +1037,73 @@ Esp.getBoxParts = function(model)
 	return parts
 end
 
+H.BOX_SIGNS = {
+	Vector3.new(-1, -1, -1), Vector3.new(1, -1, -1), Vector3.new(-1, 1, -1), Vector3.new(1, 1, -1),
+	Vector3.new(-1, -1, 1), Vector3.new(1, -1, 1), Vector3.new(-1, 1, 1), Vector3.new(1, 1, 1),
+}
+
+function H.tightCorners(character, old)
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
+
+	local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+	local any = false
+
+	for _, part in ipairs(character:GetChildren()) do
+		if part:IsA("BasePart") and H.BODY_PARTS[part.Name] then
+			local cframe, half = part.CFrame, part.Size / 2
+			for _, sign in ipairs(H.BOX_SIGNS) do
+				local point, onScreen = camera:WorldToViewportPoint(cframe * (half * sign))
+				if onScreen then
+					any = true
+					if point.X < minX then minX = point.X end
+					if point.X > maxX then maxX = point.X end
+					if point.Y < minY then minY = point.Y end
+					if point.Y > maxY then maxY = point.Y end
+				end
+			end
+		end
+	end
+
+	if not any then return nil end
+
+	minX, minY, maxX, maxY = math.floor(minX - 2), math.floor(minY - 2), math.floor(maxX + 2), math.floor(maxY + 2)
+
+	return {
+		corners = old and old.corners or {},
+		topLeft = Vector2.new(minX, minY),
+		topRight = Vector2.new(maxX, minY),
+		bottomLeft = Vector2.new(minX, maxY),
+		bottomRight = Vector2.new(maxX, maxY),
+	}
+end
+
+function H.patchEspRender(object)
+	if S.espRenderPatched then return end
+	local meta = getmetatable(object)
+	local class = meta and meta.__index
+	if type(class) ~= "table" or type(class.Render) ~= "function" then return end
+
+	local original = class.Render
+	S.espRenderClass, S.espRenderOriginal = class, original
+	S.espRenderPatched = true
+
+	class.Render = function(self, ...)
+		if alive() and F.tightBox and self._corners and self.record and self.record.Character then
+			local ok, corners = pcall(H.tightCorners, self.record.Character, self._corners)
+			if ok and corners then self._corners = corners end
+		end
+		return original(self, ...)
+	end
+end
+
+function H.unpatchEspRender()
+	if S.espRenderClass and S.espRenderOriginal then
+		pcall(function() S.espRenderClass.Render = S.espRenderOriginal end)
+	end
+	S.espRenderPatched = false
+end
+
 shared.FacilityCleanup = function()
 	F.silent, F.trigger = false, false
 	F.noRecoil, F.noSpread, F.rapidFire, F.autoFire, F.fastReload = false, false, false, false, false
@@ -1045,6 +1116,7 @@ shared.FacilityCleanup = function()
 	pcall(H.clearDots)
 	if F.walkSpeed then pcall(H.applyWalk, 18) end
 	pcall(H.restoreAll)
+	pcall(H.unpatchEspRender)
 
 	for _, connection in ipairs(S.connections) do pcall(function() connection:Disconnect() end) end
 	for _, thread in ipairs(S.threads) do pcall(task.cancel, thread) end
@@ -1065,7 +1137,6 @@ end
 H.setTeamMode("Game")
 Esp.teamSettings.enemy.enabled = true
 Esp.teamSettings.friendly.enabled = false
-Esp.sharedSettings.bodyPartsOnly = true
 
 function H.T(section, text, flag, default, callback, hint)
 	return section:Toggle({
@@ -1364,6 +1435,8 @@ function H.espSet(key, value)
 	end
 end
 
+H.espSet("BeforeUpdate", function(object) H.patchEspRender(object) end)
+
 function H.espPair(key, color, alpha)
 	Esp.teamSettings.enemy[key] = { color, alpha ~= nil and (1 - alpha) or 1 }
 end
@@ -1406,7 +1479,7 @@ U.espBox:Toggle({
 			H.espSet("box3d", value == "3D")
 		end)
 		H.D(panel, "Fit", "sd_esp_box_fit", { "Body", "Full Model" }, "Body", function(value)
-			Esp.sharedSettings.bodyPartsOnly = value == "Body"
+			F.tightBox = value == "Body"
 		end)
 	end)
 
