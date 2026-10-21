@@ -1,3 +1,5 @@
+--!nocheck
+--!nolint UnknownGlobal
 
 local FH      = shared.Facility
 local Library = FH.Library
@@ -44,7 +46,7 @@ local NAMES = {
 	["Wood Planks"] = "Wood", ["Prehistoric Island"] = "Prehistoric", ["Sea Items"] = "Sea Crafting",
 	["Maps"] = "Islands", ["Fruits"] = "Devil Fruits", ["Shop"] = "Store", ["Automation Fishing"] = "Fishing",
 	["Mirage Island"] = "Mirage", ["Upgrade Race"] = "Race", ["Raid"] = "Raids", ["ESP"] = "Visuals",
-	["Anti-Cheat Bypass"] = "Safety", ["Menu UI"] = "Game Menus", ["Redeem"] = "Codes",
+	["Menu UI"] = "Game Menus", ["Redeem"] = "Codes",
 	["Remove Effects"] = "Clean Screen", ["Automations"] = "Haki", ["Reset Config"] = "Saved State",
 
 	["Tween & Movement"] = "Movement", ["Mob Control"] = "Mobs", ["Combat Settings"] = "Combat",
@@ -109,7 +111,7 @@ local NAMES = {
 	["Select Raid"] = "Raid", ["Auto Buy Chips"] = "Buy Chip", ["Auto Raid"] = "Raid Farm",
 	["ESP Player"] = "Players", ["ESP Chest"] = "Chests", ["ESP Berry"] = "Berries", ["ESP Flower"] = "Flowers",
 	["ESP Devil Fruit"] = "Fruits", ["ESP Island"] = "Islands", ["ESP Mirage Island"] = "Mirage",
-	["ESP Kitsune Island"] = "Kitsune", ["Anti-Flag"] = "Session Refresh", ["Fruit Shop"] = "Fruit Shop Menu",
+	["ESP Kitsune Island"] = "Kitsune", ["Fruit Shop"] = "Fruit Shop Menu",
 	["Titles"] = "Titles Menu", ["Walk On Water"] = "Water Walk", ["Remove Damage Numbers"] = "Hide Damage",
 	["Remove Notifications"] = "Hide Popups", ["Auto Haki"] = "Buso Haki", ["Auto Ken"] = "Observation Haki",
 	["Reset Script Config"] = "Clear Saved State",
@@ -141,6 +143,13 @@ function H.flag(title)
 	U.Flags[name] = true
 	return name
 end
+
+H.CODES = {
+	"EASTEREXP", "LIGHTNINGABUSE", "1LOSTADMIN", "KITT_RESET", "CHANDLER", "Sub2CaptainMaui", "BIGNEWS",
+	"kittgaming", "Sub2Fer999", "Enyu_is_Pro", "Magicbus", "JCWK", "Bluxxy", "fudd10_v2",
+	"SUB2GAMERROBOT_EXP1", "SUB2GAMERROBOT_RESET1", "Sub2UncleKizaru", "Axiore", "Sub2Daigrock",
+	"Sub2NoobMaster123", "StrawHatMaine", "TantaiGaming", "Fudd10", "TheGreatAce", "Sub2OfficialNoobie",
+}
 
 local FacilityLib = { Unloaded = false }
 
@@ -389,7 +398,7 @@ function H.tab(name, icon)
 	return adapter
 end
 
-local TabHome      = H.tab("Home", "house")
+local TabHome      = H.tab("Home", "home")
 local TabProgress  = H.tab("Progress", "rocket")
 local TabMain      = H.tab("Farm", "swords")
 local TabAuto      = H.tab("Quests", "bot")
@@ -399,6 +408,203 @@ local TabShop      = H.tab("Shop", "shopping-cart")
 local TabMisc      = H.tab("Misc", "wrench")
 Window:TabDivider()
 local TabSettings  = H.tab("Settings", "cog")
+
+S.build = "Melee"
+S.buyAbilities = true
+S.travel = true
+
+H.SEA = {
+	[2753915549] = 1, [85211729168715] = 1,
+	[4442272183] = 2, [79091703265657] = 2,
+	[7449423635] = 3, [100117331123089] = 3,
+}
+
+H.BUILDS = {
+	Melee = { weapon = "Melee", stats = { "Auto Melee", "Auto Defense" } },
+	Sword = { weapon = "Sword", stats = { "Auto Sword", "Auto Defense" } },
+	Fruit = { weapon = "Blox Fruit", stats = { "Auto Demon Fruit", "Auto Defense" } },
+}
+
+H.PROGRESS_TOGGLES = { "Auto Farm Level", "Auto Take Quest", "Bring Mob", "Fast Attack", "Auto Haki" }
+
+function H.reg(title)
+	return FacilityFuncs.Registry[title]
+end
+
+function H.progressSet(title, state)
+	local api = H.reg(title)
+	if not api then return end
+	if state then
+		if api.Get and api:Get() then return end
+		S.progressOwned[title] = true
+		api:SetValue(true)
+	elseif S.progressOwned[title] then
+		S.progressOwned[title] = nil
+		api:SetValue(false)
+	end
+end
+
+function H.data(name)
+	local data = LocalPlayer:FindFirstChild("Data")
+	local value = data and data:FindFirstChild(name)
+	return value and value.Value or 0
+end
+
+function H.comm(...)
+	local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
+	if not remote then return nil end
+	local args = table.pack(...)
+	local ok, result = pcall(function() return remote:InvokeServer(table.unpack(args, 1, args.n)) end)
+	return ok and result or nil
+end
+
+function H.hasTag(tag)
+	local character = LocalPlayer.Character
+	return character ~= nil and CollectionService:HasTag(character, tag)
+end
+
+function H.progressTick()
+	local build = H.BUILDS[S.build] or H.BUILDS.Melee
+
+	for _, title in ipairs(H.PROGRESS_TOGGLES) do H.progressSet(title, true) end
+
+	local weapon = H.reg("Weapon Tool")
+	if weapon then weapon:Set(build.weapon) end
+	local points = H.reg("Points Per Stat")
+	if points then points:Set("50") end
+
+	for _, title in ipairs({ "Auto Melee", "Auto Defense", "Auto Sword", "Auto Gun", "Auto Demon Fruit" }) do
+		H.progressSet(title, table.find(build.stats, title) ~= nil)
+	end
+
+	if S.buyAbilities then
+		local beli = H.data("Beli")
+		if not H.hasTag("Geppo") and beli >= 10000 then H.comm("BuyHaki", "Geppo") end
+		if not H.hasTag("Buso") and beli >= 25000 then H.comm("BuyHaki", "Buso") end
+		if not H.hasTag("Soru") and beli >= 100000 then H.comm("BuyHaki", "Soru") end
+		if not H.hasTag("Ken") and beli >= 750000 then H.comm("KenTalk", "Buy") end
+	end
+
+	if S.travel then
+		local level = H.data("Level")
+		local sea = H.SEA[game.PlaceId]
+		if sea == 1 and level >= 700 then
+			H.comm("TravelDressrosa")
+		elseif sea == 2 and level >= 1500 then
+			H.comm("TravelZou")
+		end
+	end
+end
+
+function H.setProgress(state)
+	S.progress = state
+	if not state then
+		for title in pairs(S.progressOwned) do
+			local api = H.reg(title)
+			if api then api:SetValue(false) end
+		end
+		table.clear(S.progressOwned)
+		return
+	end
+
+	task.spawn(function()
+		while S.progress and alive() and not FacilityLib.Unloaded do
+			pcall(H.progressTick)
+			task.wait(3)
+		end
+	end)
+end
+
+function H.fixLag()
+	pcall(function()
+		for _, effect in ipairs(Lighting:GetChildren()) do
+			if effect:IsA("PostEffect") then effect.Enabled = false end
+		end
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 9e9
+		Lighting.EnvironmentDiffuseScale = 0
+		Lighting.EnvironmentSpecularScale = 0
+		settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+	end)
+
+	local function optimize(item)
+		if item:IsA("BasePart") then
+			item.Material = Enum.Material.Plastic
+			item.Reflectance = 0
+		elseif item:IsA("Decal") or item:IsA("Texture") then
+			item.Transparency = 1
+		elseif item:IsA("ParticleEmitter") or item:IsA("Trail") or item:IsA("Smoke") or item:IsA("Fire") or item:IsA("Sparkles") then
+			item.Enabled = false
+		elseif item:IsA("Explosion") then
+			item.BlastPressure = 0
+			item.BlastRadius = 0
+		end
+	end
+
+	task.spawn(function()
+		for index, item in ipairs(workspace:GetDescendants()) do
+			if index % 500 == 0 then task.wait() end
+			pcall(optimize, item)
+		end
+	end)
+
+	if not S.lagConn then
+		S.lagConn = workspace.DescendantAdded:Connect(function(item) pcall(optimize, item) end)
+	end
+end
+
+U.progress = TabProgress.Tab:Section("Auto Progress", 1)
+
+U.progress:Paragraph({
+	Title = "how it works",
+	Content = "Turns on leveling with quests, mob gathering, rapid hits and haki, spends stat points on your build, buys Geppo, Buso, Soru and Ken when you can afford them, and travels to the next sea at level 700 and 1500 once that sea is unlocked.",
+})
+
+U.progress:Toggle({
+	Text = "Auto Progress",
+	Flag = "bf_progress",
+	Default = false,
+	Callback = function(state) H.setProgress(state) end,
+})
+	:Keybind({ Default = "None", Flag = "bf_progress_key" })
+
+U.progress:Dropdown({
+	Text = "Build",
+	Flag = "bf_progress_build",
+	Options = { "Melee", "Sword", "Fruit" },
+	Default = "Melee",
+	Callback = function(value) S.build = type(value) == "table" and value[1] or value end,
+})
+
+U.progress:Toggle({ Text = "Buy Abilities", Flag = "bf_progress_abilities", Default = true, Callback = function(state) S.buyAbilities = state end })
+U.progress:Toggle({ Text = "Travel Seas", Flag = "bf_progress_travel", Default = true, Callback = function(state) S.travel = state end })
+
+U.perf = TabProgress.Tab:Section("Performance", 2)
+
+U.perf:Toggle({
+	Text = "White Screen",
+	Flag = "bf_white_screen",
+	Default = false,
+	Hint = "stops 3D rendering to save resources while farming",
+	Callback = function(state) pcall(function() RunService:Set3dRenderingEnabled(not state) end) end,
+})
+
+U.perf:Slider({
+	Text = "FPS Cap",
+	Flag = "bf_fps_cap",
+	Min = 0,
+	Max = 240,
+	Default = 0,
+	ZeroText = "default",
+	Callback = function(value)
+		if type(setfpscap) ~= "function" then return end
+		pcall(setfpscap, value > 0 and value or 60)
+	end,
+})
+
+U.perf:Button({ Text = "Fix Lag (until rejoin)", Callback = function() H.fixLag() Library:Success("Performance", "Lag fix applied.", 4) end })
+
+TabProgress.Count = 2
 local function BuildFarm()
 	local now = tick()
 	local v9 = FacilityLib
@@ -3500,39 +3706,6 @@ local function BuildFarm()
 		["http://www.roblox.com/asset/?id=9709149680"] = "New Moon (1/5)",
 	}
 
-	local v24 = v12:AddSection("Server & Player Status", true):AddParagraph({ Title = "Status", Content = "" })
-
-	local function fn16()
-		local str3 = sky and tbl32[sky.MoonTextureId] or "Unknown"
-		local str4 = tostring(c.Value)
-		local str5 = (({ ["1"] = "", ["2"] = "", ["3"] = "", ["4"] = "" })[str4] or "") .. " Tier " .. str4 .. "/4"
-		local str6 = visionRadius.Value .. " / 5000 XP"
-		local str7 = "Lv. " .. level.Value .. " | XP: " .. exp.Value .. " (" .. math.floor(exp.Value / (level.Value * 100 + 50) * 100) .. "%)"
-		local value = bountyHonor.Value
-
-		v24:Set({
-			Title = "Status",
-			Content = string.format("🌙 %s\n👤 %s\n👁️ %s\n📊 %s\n💰 %s\n💎 %s", str3, str5, str6, str7, (value >= 1000000 and string.format("%.1fM", value / 1000000) or tostring(value)) .. " (" .. value .. ")", (beli.Value >= 1000000 and string.format("%.1fM", beli.Value / 1000000) or tostring(beli.Value)) .. " Beli | " .. fragments.Value .. " Frags"),
-		})
-	end
-
-	fn16()
-
-	local function fn17()
-		if sky then
-			sky:GetPropertyChangedSignal("MoonTextureId"):Connect(fn16)
-		end
-
-		c.Changed:Connect(fn16)
-		visionRadius.Changed:Connect(fn16)
-		level.Changed:Connect(fn16)
-		exp.Changed:Connect(fn16)
-		bountyHonor.Changed:Connect(fn16)
-		beli.Changed:Connect(fn16)
-		fragments.Changed:Connect(fn16)
-	end
-
-	fn17()
 	local v25 = v12:AddSection("Stack Farming System")
 
 	v25:AddParagraph({
@@ -6309,7 +6482,7 @@ local function BuildFarm()
 		end)
 	end)
 
-	result2:Toggle(v17:AddSection("Anti-Cheat Bypass"), "Anti-Flag", "Auto-rejoin every 30 minutes", false, function(arg)
+	result2:Toggle(TabProgress:AddSection("Anti-Cheat Bypass"), "Anti-Flag", "Auto-rejoin every 30 minutes", false, function(arg)
 		tbl16:SetSave("Anti-Flag", arg)
 
 		tbl4.__spawn(function()
@@ -6345,20 +6518,14 @@ local function BuildFarm()
 		playerGui.Main.Colors.Visible = true
 	end)
 
-	local redeemSection = v17:AddSection("Redeem")
-
-	result2:Textbox(redeemSection, "Codes", "codes separated by commas", "Save", function(arg)
-		tbl16:SetSave("Codes", arg)
-	end)
-
-	result2:Button(redeemSection, "Redeem Codes", "", function()
+	result2:Button(v17:AddSection("Redeem"), "Redeem All Codes", "Redeem all available codes", function()
 		local count = 0
-		for code in string.gmatch(tostring(tbl14["Codes"] or ""), "[^,%s]+") do
-			count = count + 1
-			pcall(function() tbl5.ReplicatedStorage.Remotes.Redeem:InvokeServer(code) end)
-			task.wait(0.3)
+		for _, code in ipairs(H.CODES) do
+			local ok = pcall(function() tbl5.ReplicatedStorage.Remotes.Redeem:InvokeServer(code) end)
+			if ok then count = count + 1 end
+			task.wait(0.25)
 		end
-		v9:SetNotification({ "Facility", "Codes", count .. " code(s) sent.", 4 })
+		v9:SetNotification({ "Facility", "Codes", count .. " codes redeemed.", 4 })
 	end)
 
 	result2:Toggle(v17:AddSection("Water"), "Walk On Water", "Enable walking on water", true, function(arg)
@@ -6460,202 +6627,6 @@ do
 		task.delay(1, function() pcall(function() Library:Error("Facility", "Load error: " .. tostring(err), 15) end) end)
 	end
 end
-
-S.build = "Melee"
-S.buyAbilities = true
-S.travel = true
-
-H.SEA = {
-	[2753915549] = 1, [85211729168715] = 1,
-	[4442272183] = 2, [79091703265657] = 2,
-	[7449423635] = 3, [100117331123089] = 3,
-}
-
-H.BUILDS = {
-	Melee = { weapon = "Melee", stats = { "Auto Melee", "Auto Defense" } },
-	Sword = { weapon = "Sword", stats = { "Auto Sword", "Auto Defense" } },
-	Fruit = { weapon = "Blox Fruit", stats = { "Auto Demon Fruit", "Auto Defense" } },
-}
-
-H.PROGRESS_TOGGLES = { "Auto Farm Level", "Auto Take Quest", "Bring Mob", "Fast Attack", "Auto Haki" }
-
-function H.reg(title)
-	return FacilityFuncs.Registry[title]
-end
-
-function H.progressSet(title, state)
-	local api = H.reg(title)
-	if not api then return end
-	if state then
-		if api.Get and api:Get() then return end
-		S.progressOwned[title] = true
-		api:SetValue(true)
-	elseif S.progressOwned[title] then
-		S.progressOwned[title] = nil
-		api:SetValue(false)
-	end
-end
-
-function H.data(name)
-	local data = LocalPlayer:FindFirstChild("Data")
-	local value = data and data:FindFirstChild(name)
-	return value and value.Value or 0
-end
-
-function H.comm(...)
-	local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("CommF_")
-	if not remote then return nil end
-	local args = table.pack(...)
-	local ok, result = pcall(function() return remote:InvokeServer(table.unpack(args, 1, args.n)) end)
-	return ok and result or nil
-end
-
-function H.hasTag(tag)
-	local character = LocalPlayer.Character
-	return character ~= nil and CollectionService:HasTag(character, tag)
-end
-
-function H.progressTick()
-	local build = H.BUILDS[S.build] or H.BUILDS.Melee
-
-	for _, title in ipairs(H.PROGRESS_TOGGLES) do H.progressSet(title, true) end
-
-	local weapon = H.reg("Weapon Tool")
-	if weapon then weapon:Set(build.weapon) end
-	local points = H.reg("Points Per Stat")
-	if points then points:Set("50") end
-
-	for _, title in ipairs({ "Auto Melee", "Auto Defense", "Auto Sword", "Auto Gun", "Auto Demon Fruit" }) do
-		H.progressSet(title, table.find(build.stats, title) ~= nil)
-	end
-
-	if S.buyAbilities then
-		local beli = H.data("Beli")
-		if not H.hasTag("Geppo") and beli >= 10000 then H.comm("BuyHaki", "Geppo") end
-		if not H.hasTag("Buso") and beli >= 25000 then H.comm("BuyHaki", "Buso") end
-		if not H.hasTag("Soru") and beli >= 100000 then H.comm("BuyHaki", "Soru") end
-		if not H.hasTag("Ken") and beli >= 750000 then H.comm("KenTalk", "Buy") end
-	end
-
-	if S.travel then
-		local level = H.data("Level")
-		local sea = H.SEA[game.PlaceId]
-		if sea == 1 and level >= 700 then
-			H.comm("TravelDressrosa")
-		elseif sea == 2 and level >= 1500 then
-			H.comm("TravelZou")
-		end
-	end
-end
-
-function H.setProgress(state)
-	S.progress = state
-	if not state then
-		for title in pairs(S.progressOwned) do
-			local api = H.reg(title)
-			if api then api:SetValue(false) end
-		end
-		table.clear(S.progressOwned)
-		return
-	end
-
-	task.spawn(function()
-		while S.progress and alive() and not FacilityLib.Unloaded do
-			pcall(H.progressTick)
-			task.wait(3)
-		end
-	end)
-end
-
-function H.fixLag()
-	pcall(function()
-		for _, effect in ipairs(Lighting:GetChildren()) do
-			if effect:IsA("PostEffect") then effect.Enabled = false end
-		end
-		Lighting.GlobalShadows = false
-		Lighting.FogEnd = 9e9
-		Lighting.EnvironmentDiffuseScale = 0
-		Lighting.EnvironmentSpecularScale = 0
-		settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-	end)
-
-	local function optimize(item)
-		if item:IsA("BasePart") then
-			item.Material = Enum.Material.Plastic
-			item.Reflectance = 0
-		elseif item:IsA("Decal") or item:IsA("Texture") then
-			item.Transparency = 1
-		elseif item:IsA("ParticleEmitter") or item:IsA("Trail") or item:IsA("Smoke") or item:IsA("Fire") or item:IsA("Sparkles") then
-			item.Enabled = false
-		elseif item:IsA("Explosion") then
-			item.BlastPressure = 0
-			item.BlastRadius = 0
-		end
-	end
-
-	task.spawn(function()
-		for index, item in ipairs(workspace:GetDescendants()) do
-			if index % 500 == 0 then task.wait() end
-			pcall(optimize, item)
-		end
-	end)
-
-	if not S.lagConn then
-		S.lagConn = workspace.DescendantAdded:Connect(function(item) pcall(optimize, item) end)
-	end
-end
-
-U.progress = TabProgress.Tab:Section("Auto Progress", 1)
-
-U.progress:Paragraph({
-	Title = "how it works",
-	Content = "Turns on leveling with quests, mob gathering, rapid hits and haki, spends stat points on your build, buys Geppo, Buso, Soru and Ken when you can afford them, and travels to the next sea at level 700 and 1500 once that sea is unlocked.",
-})
-
-U.progress:Toggle({
-	Text = "Auto Progress",
-	Flag = "bf_progress",
-	Default = false,
-	Callback = function(state) H.setProgress(state) end,
-})
-	:Keybind({ Default = "None", Flag = "bf_progress_key" })
-
-U.progress:Dropdown({
-	Text = "Build",
-	Flag = "bf_progress_build",
-	Options = { "Melee", "Sword", "Fruit" },
-	Default = "Melee",
-	Callback = function(value) S.build = type(value) == "table" and value[1] or value end,
-})
-
-U.progress:Toggle({ Text = "Buy Abilities", Flag = "bf_progress_abilities", Default = true, Callback = function(state) S.buyAbilities = state end })
-U.progress:Toggle({ Text = "Travel Seas", Flag = "bf_progress_travel", Default = true, Callback = function(state) S.travel = state end })
-
-U.perf = TabProgress.Tab:Section("Performance", 2)
-
-U.perf:Toggle({
-	Text = "White Screen",
-	Flag = "bf_white_screen",
-	Default = false,
-	Hint = "stops 3D rendering to save resources while farming",
-	Callback = function(state) pcall(function() RunService:Set3dRenderingEnabled(not state) end) end,
-})
-
-U.perf:Slider({
-	Text = "FPS Cap",
-	Flag = "bf_fps_cap",
-	Min = 0,
-	Max = 240,
-	Default = 0,
-	ZeroText = "default",
-	Callback = function(value)
-		if type(setfpscap) ~= "function" then return end
-		pcall(setfpscap, value > 0 and value or 60)
-	end,
-})
-
-U.perf:Button({ Text = "Fix Lag (until rejoin)", Callback = function() H.fixLag() Library:Success("Performance", "Lag fix applied.", 4) end })
-
 local SaveManager      = Library.SaveManager
 local InterfaceManager = Library.InterfaceManager
 local ThemeManager     = Library.ThemeManager
