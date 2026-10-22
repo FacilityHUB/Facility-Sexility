@@ -78,6 +78,7 @@ local F = {
 	autoFuel = false, fuelEvery = 5, fuelOnlyItems = true,
 	chopAura = false, chopRange = 100,
 	bringGroup = "All", bringNames = {}, bringRadius = 10, bringDrag = true,
+	bringSpot = "Around Me", bringSpread = 2, bringHeight = 3, treeEsp = true,
 
 	playerEsp = false, itemEsp = false, itemEspRange = 300,
 	itemEspGroups = { Fuel = true, Food = true, Other = false },
@@ -290,6 +291,8 @@ function H.query(root, selector, attribute)
 end
 
 function H.position(item)
+	if not item then return nil end
+	if item:IsA("Attachment") then return item.WorldPosition end
 	if item:IsA("BasePart") then return item.Position end
 	if item:IsA("Model") then
 		local ok, pivot = pcall(item.GetPivot, item)
@@ -473,10 +476,34 @@ function H.itemNames()
 	return names
 end
 
-function H.bringItems()
+H.BRING_SPOTS = { "Around Me", "Campfire", "Scrapper" }
+
+function H.campground()
+	local map = workspace:FindFirstChild("Map")
+	return map and map:FindFirstChild("Campground")
+end
+
+function H.bringSpot()
+	if F.bringSpot == "Campfire" then
+		local fire = H.mainFire()
+		return H.position(fire and (fire:FindFirstChild("Center") or fire))
+	end
+	if F.bringSpot == "Scrapper" then
+		local camp = H.campground()
+		return H.position(camp and camp:FindFirstChild("Scrapper"))
+	end
 	local root = H.root()
+	return root and root.Position or nil
+end
+
+function H.bringItems()
+	local center = H.bringSpot()
 	local folder = H.itemsFolder()
-	if not (root and folder) then return 0 end
+	if not center then
+		H.notify("Items", F.bringSpot .. " not found on this map.", 4)
+		return 0
+	end
+	if not folder then return 0 end
 
 	local picked = {}
 	local named = next(F.bringNames) ~= nil
@@ -486,16 +513,85 @@ function H.bringItems()
 		if groupOk and nameOk then table.insert(picked, item) end
 	end
 
+	local aroundMe = F.bringSpot == "Around Me"
+	local radius = aroundMe and F.bringRadius or F.bringSpread
+	local lift = aroundMe and 0 or F.bringHeight
 	local count = #picked
+
 	for index, item in ipairs(picked) do
 		if not alive() then break end
 		local angle = ((index - 1) / math.max(count, 1)) * math.pi * 2
-		local spot = root.Position + Vector3.new(math.cos(angle) * F.bringRadius, 0, math.sin(angle) * F.bringRadius)
+		local spot = center + Vector3.new(math.cos(angle) * radius, lift, math.sin(angle) * radius)
 		if F.bringDrag then H.drag(item, CFrame.new(spot)) else H.moveItem(item, CFrame.new(spot)) end
 		if index % 10 == 0 then task.wait() end
 	end
 	return count
 end
+
+S.treeEsp = {}
+
+function H.treeHealth(tree)
+	local health = tree:GetAttribute("Health")
+	local value = tree:FindFirstChild("Health")
+	if health == nil and value and value:IsA("ValueBase") then health = value.Value end
+	if type(health) ~= "number" then return nil, nil end
+	local maximum = tree:GetAttribute("MaxHealth")
+	local maxValue = tree:FindFirstChild("MaxHealth")
+	if maximum == nil and maxValue and maxValue:IsA("ValueBase") then maximum = maxValue.Value end
+	if type(maximum) ~= "number" then
+		S.treeMax = S.treeMax or setmetatable({}, { __mode = "k" })
+		S.treeMax[tree] = math.max(S.treeMax[tree] or 0, health)
+		maximum = S.treeMax[tree]
+	end
+	return health, maximum
+end
+
+function H.treeColor(ratio)
+	if ratio > 0.5 then return Color3.new((1 - ratio) * 2, 1, 0) end
+	return Color3.new(1, ratio * 2, 0)
+end
+
+function H.treeEspSync()
+	local seen = {}
+	if F.treeEsp and F.chopAura then
+		local root = H.root()
+		for _, tree in ipairs(H.trees()) do
+			local trunk = tree.Parent and tree:FindFirstChild("Trunk")
+			if root and trunk and (trunk.Position - root.Position).Magnitude <= F.chopRange + 20 then
+				seen[trunk] = true
+				if not S.treeEsp[trunk] then
+					local options = {
+						enabled = true,
+						maxDistance = F.chopRange + 40,
+						textColor = { Color3.new(1, 1, 1), 1 },
+					}
+					options.getText = function()
+						local health, maximum = H.treeHealth(tree)
+						if not health then return tree.Name end
+						local ratio = maximum and maximum > 0 and math.clamp(health / maximum, 0, 1) or 1
+						options.textColor[1] = H.treeColor(ratio)
+						return string.format("%s  %d / %d", tree.Name, math.floor(health + 0.5), math.floor((maximum or health) + 0.5))
+					end
+					S.treeEsp[trunk] = true
+					pcall(function() Esp:AddInstance(trunk, options) end)
+				end
+			end
+		end
+	end
+	for trunk in pairs(S.treeEsp) do
+		if not seen[trunk] then
+			pcall(function() Esp:RemoveInstance(trunk) end)
+			S.treeEsp[trunk] = nil
+		end
+	end
+end
+
+function H.treeEspClear()
+	for trunk in pairs(S.treeEsp) do pcall(function() Esp:RemoveInstance(trunk) end) end
+	table.clear(S.treeEsp)
+end
+
+H.loop(1, H.treeEspSync)
 
 function H.lightingStep()
 	if F.fullbright then
@@ -730,6 +826,7 @@ end
 shared.FacilityCleanup = function()
 	F.autoEat, F.autoFuel, F.chopAura, F.fullbright, F.noFog = false, false, false, false, false
 	pcall(H.itemEspClear)
+	pcall(H.treeEspClear)
 	if F.whiteScreen then pcall(H.setWhiteScreen, false) end
 	pcall(H.restoreAll)
 
@@ -807,7 +904,7 @@ if #moduleErrors > 0 then
 end
 
 function H.espEnsure()
-	local want = F.playerEsp or F.itemEsp
+	local want = F.playerEsp or F.itemEsp or (F.chopAura and F.treeEsp)
 	local loaded = Esp._loaded == true
 	if want and not loaded then
 		local ok, err = pcall(function() Esp:Load(Entity) end)
@@ -838,11 +935,19 @@ U.chopBox = U.Farm:Section("Chop Aura", 1)
 H.T(U.chopBox, "Enable", "nf_chop", false, function(state)
 	F.chopAura = state
 	if state and not H.enemyHandler() then H.notify("Chop Aura", "Hit handler not found yet, it will retry.", 4) S.enemyHandler = nil end
+	H.espEnsure()
+	if not state then H.treeEspClear() end
 end, "chops the closest tree while you hold an axe or chainsaw")
 H.S(U.chopBox, "Range", "nf_chop_range", 10, 150, 100, 0, function(value) F.chopRange = value end, " studs")
+H.T(U.chopBox, "Tree Health", "nf_tree_esp", true, function(state)
+	F.treeEsp = state
+	H.espEnsure()
+	if not state then H.treeEspClear() end
+end, "shows the health of trees in range while the aura is on")
 U.chopBox:Label("Big trees need a chainsaw in your inventory.", { Style = "dim" })
 
 U.bringBox = U.ItemsT:Section("Bring Items", 1)
+H.D(U.bringBox, "Destination", "nf_bring_spot", H.BRING_SPOTS, "Around Me", function(value) F.bringSpot = value end)
 H.D(U.bringBox, "Type", "nf_bring_group", H.ITEM_GROUPS, "All", function(value) F.bringGroup = value end)
 
 U.bringNames = U.bringBox:Dropdown({
@@ -860,6 +965,9 @@ U.bringNames = U.bringBox:Dropdown({
 })
 
 H.S(U.bringBox, "Ring Radius", "nf_bring_radius", 4, 30, 10, 0, function(value) F.bringRadius = value end, " studs")
+H.S(U.bringBox, "Pile Spread", "nf_bring_spread", 0, 8, 2, 1, function(value) F.bringSpread = value end, " studs")
+H.S(U.bringBox, "Drop Height", "nf_bring_height", 0, 10, 3, 1, function(value) F.bringHeight = value end, " studs")
+U.bringBox:Label("Ring Radius is used around you, Pile Spread and Drop Height on the campfire and scrapper.", { Style = "dim" })
 H.T(U.bringBox, "Use Drag", "nf_bring_drag", true, function(state) F.bringDrag = state end, "tells the server you carried them, so they stay")
 H.B(U.bringBox, "Bring Now", function()
 	local count = H.bringItems()
