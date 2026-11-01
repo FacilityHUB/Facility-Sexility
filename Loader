@@ -1,5 +1,3 @@
---!nocheck
---!nolint UnknownGlobal
 
 repeat task.wait() until game:IsLoaded()
 
@@ -16,6 +14,7 @@ local DEV = getgenv and getgenv().FacilityDev == true
 local config = getgenv and getgenv().FacilityConfig
 config = type(config) == "table" and config or {}
 local forceUniversal = config.UniversalAimbot == true
+local combine = config.UniversalAimbot == "both"
 local tabStyle = config.TabStyle
 local universalBase = "https://raw.githubusercontent.com/FacilityHUB/zzzz/refs/heads/" .. BRANCH .. "/"
 local moduleBase = HUB_BASE
@@ -77,11 +76,13 @@ local function fetch(base, path, timeout)
 	return nil, tostring(body)
 end
 
-local function run(source, label)
+local function run(source, label, waitForReturn)
 	local chunk, err = loadstring(source)
 	if type(chunk) ~= "function" then
 		return false, "compile error in " .. label .. ": " .. tostring(err)
 	end
+
+	if waitForReturn then return pcall(chunk) end
 
 	local finished, ok, runErr = false, false, nil
 
@@ -179,13 +180,20 @@ task.spawn(discordInvite)
 local Library = loadModule(UI_BASE, "main.luau", "interface")
 Library.BaseUrl = UI_BASE
 
-local restoreWindow
-if tabStyle == "side" or tabStyle == "top" then
+local restoreWindow, gameWindow
+local overrideStyle = tabStyle == "side" or tabStyle == "top"
+if overrideStyle or combine then
 	local originalWindow = Library.Window
+	local function remember(window, ...)
+		gameWindow = gameWindow or window
+		return window, ...
+	end
 	local function configuredWindow(self, options, ...)
-		local windowOptions = table.clone(options or {})
-		windowOptions.TabStyle = tabStyle
-		return originalWindow(self, windowOptions, ...)
+		if overrideStyle then
+			options = table.clone(options or {})
+			options.TabStyle = tabStyle
+		end
+		return remember(originalWindow(self, options, ...))
 	end
 	Library.Window = configuredWindow
 	restoreWindow = function()
@@ -301,12 +309,48 @@ if Webhook and LOG_WEBHOOK ~= "" then
 	end)
 end
 
-local ok, err = run(source, label)
+local session = shared.Facility
+local attachUniversal = combine and supported
+local ok, err = run(source, label, attachUniversal)
 
 if not ok then
 	notify("Facility", "Loading failed, see the console.", 10)
 	warn(err)
 	return
+end
+
+if attachUniversal then
+	if shared.Facility ~= session then return end
+	local function attach()
+		assert(gameWindow and type(gameWindow.Tab) == "function", "the game script did not open a Facility window")
+		local universalPath = "Games/Universal.luau"
+		-- An older Universal would create a second window and reset the save managers.
+		local marker = "-- FacilityUniversal: embedded-v1"
+		for _, base in ipairs({HUB_BASE, universalBase}) do
+			local body = fetch(base, universalPath, 6)
+			if shared.Facility ~= session then return end
+			if body and body:sub(1, #marker) == marker then
+				local mount = assert(loadstring(body))
+				mount({
+					Window = gameWindow,
+					Load = function(modulePath, moduleLabel)
+						return loadModule(base, modulePath, moduleLabel)
+					end,
+				})
+				return
+			end
+		end
+		error("publish the matching Games/Universal.luau to enable combined mode", 0)
+	end
+	local mounted, reason = pcall(attach)
+	if shared.Facility ~= session then return end
+	if not mounted then
+		if session.StopUniversal then pcall(session.StopUniversal) end
+		notify("Facility", "Game loaded. Universal could not attach: " .. tostring(reason), 10)
+		warn("Facility: " .. tostring(reason))
+		return
+	end
+	label = label .. " + Universal"
 end
 
 notify("Facility", "Loaded for " .. label .. ".", 5)
