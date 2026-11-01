@@ -6,8 +6,8 @@ local Library, Entity, Esp = F.Library, F.Entity, F.Esp
 local load = host and host.Load or F.Load
 local Aim = load("CModules/FAimbot.luau", "aimbot")
 local Move = load("CModules/FMovement.luau", "movement")
-local Cross = load("CModules/CCrosshair.luau", "crosshair")
-local Visual = load("CModules/CVisual.luau", "visuals")
+local Cross = load("CModules/FCrosshair.luau", "crosshair")
+local Visual = load("CModules/FVisual.luau", "visuals")
 if host then
     -- Game scripts can replace the entity targeting rules and mutate team settings.
     Entity = load("Libraries/Entity.luau", "universal entities")
