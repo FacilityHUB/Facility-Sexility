@@ -360,7 +360,7 @@ local function createLoading(opts)
 end
 
 if shared.FacilityLoading then pcall(function() shared.FacilityLoading:Close() end) end
-local loading = createLoading({ Title = "Facility", Suffix = ".Sexility", Steps = 6 })
+local loading = createLoading({ Title = "Facility", Suffix = ".app", Steps = 6 })
 shared.FacilityLoading = loading
 
 local function fail(message)
