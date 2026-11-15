@@ -130,13 +130,6 @@ function H.notifyError(title, message)
 	pcall(function() Library:Notify({ Title = title, Text = tostring(message), Duration = 10, Style = "Error" }) end)
 end
 
-function H.setTeamMode(mode)
-	F.teamMode = mode
-	pcall(function() Entity.Settings.TeamCheck = mode end)
-	pcall(function() Esp.sharedSettings.teamCheck = mode end)
-	pcall(function() Entity:RefreshTargets() end)
-end
-
 function H.camera()
 	return workspace.CurrentCamera
 end
@@ -197,7 +190,7 @@ function H.addBot(model)
 	S.botProxies[model] = proxy
 	local record = {
 		Player = proxy, Character = model, Humanoid = humanoid, Head = head, RootPart = root,
-		IsBot = true, Targetable = true, Health = humanoid.Health, MaxHealth = humanoid.MaxHealth,
+		IsBot = true, Targetable = not H.teammates(model), Health = humanoid.Health, MaxHealth = humanoid.MaxHealth,
 		Alive = true, Connections = {},
 	}
 	local function watch(signal, fn) table.insert(record.Connections, signal:Connect(fn)) end
@@ -290,13 +283,39 @@ if S.game.deagle and type(S.game.deagle.Raycast) == "function" then
 end
 local rawRaycast = shared.FacilityDeagleRaycast
 
-function H.teammates(character)
-	local modes = S.game.modes
-	local mine = LocalPlayer.Character
-	if not modes or type(modes.AreTeammates) ~= "function" or not mine then return false end
-	local ok, result = pcall(modes.AreTeammates, mine, character)
-	return ok and result == true
+function H.teamOf(character)
+	if not character then return nil end
+	local team = character:GetAttribute("GamemodeTeam") or character:GetAttribute("GameModeTeam")
+	if team == nil then
+		local owner = Players:GetPlayerFromCharacter(character)
+		if owner then team = owner:GetAttribute("GamemodeTeam") or owner:GetAttribute("GameModeTeam") end
+	end
+	if team == "" then return nil end
+	return team
 end
+
+function H.teammates(character)
+	local mine = H.teamOf(LocalPlayer.Character)
+	local theirs = H.teamOf(character)
+	return mine ~= nil and theirs ~= nil and mine == theirs
+end
+
+S.originalTargetable = Entity and Entity.IsTargetable
+if Entity then
+	Entity.IsTargetable = function(self, player)
+		if player == LocalPlayer then return false end
+		local character = typeof(player) == "Instance" and player.Character or (type(player) == "table" and player.Character)
+		return not H.teammates(character)
+	end
+	pcall(function() Entity:RefreshTargets() end)
+end
+
+H.spawn(function()
+	while alive() do
+		task.wait(1)
+		if Entity then pcall(function() Entity:RefreshTargets() end) end
+	end
+end)
 
 function H.attackable(character, teamCheck)
 	if not character or not character.Parent or character == LocalPlayer.Character then return false end
@@ -610,6 +629,10 @@ shared.FacilityCleanup = function()
 	F.bots = false
 	if shared.FacilityDeagleHook then shared.FacilityDeagleHook.redirect = nil end
 	if S.game.deagle and rawRaycast and S.game.deagle.Raycast == H.fakeRaycast then S.game.deagle.Raycast = rawRaycast end
+	if Entity and S.originalTargetable then
+		Entity.IsTargetable = S.originalTargetable
+		pcall(function() Entity:RefreshTargets() end)
+	end
 	for _, connection in ipairs(S.connections) do pcall(function() connection:Disconnect() end) end
 	table.clear(S.connections)
 	for _, thread in ipairs(S.threads) do
@@ -789,9 +812,8 @@ end
 
 
 U.teamBox = U.AimSub:Section("Targets", 1)
-H.D(U.teamBox, "Team Check", "dgl_team_mode", { "Team", "TeamColor", "Off" }, "Team", function(value) H.setTeamMode(value) end)
 H.botToggle(U.teamBox, "dgl_aim_bots")
-U.teamBox:Label("Bots also show in the esp and can be locked by the aimbot.", { Style = "dim" })
+U.teamBox:Label("Teams come from the game mode, bots also show in the esp and can be locked by the aimbot.", { Style = "dim" })
 
 U.silentBox = U.RageSub:Section("Silent Aim", 1)
 U.silentBox:Toggle({
