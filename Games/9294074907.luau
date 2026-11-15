@@ -42,6 +42,9 @@ end
 
 local Aimbot = fetchModule("CModules/FAimbot.luau", "aimbot")
 FH.Aimbot = Aimbot
+local Movement = fetchModule("CModules/FMovement.luau", "movement")
+if Movement then pcall(function() Movement:Load() end) end
+FH.Movement = Movement
 
 
 
@@ -70,6 +73,10 @@ local F = {
 	triggerFov = 0,
 	triggerTeam = true,
 	triggerDelay = 0,
+	walkOn = false,
+	walkValue = 30,
+	jumpOn = false,
+	jumpValue = 75,
 }
 
 local EDGE_OFFSETS = {
@@ -647,6 +654,7 @@ shared.FacilityCleanup = function()
 	end
 	table.clear(S.threads)
 	if Aimbot then pcall(function() Aimbot:Unload() end) end
+	if Movement then pcall(function() Movement:Unload() end) end
 	pcall(function() Esp:Unload() end)
 	pcall(function() Library:Destroy() end)
 end
@@ -670,6 +678,7 @@ end
 
 U.Combat = Window:Tab("Combat", "crosshair")
 U.Visuals = Window:Tab("Visuals", "eye")
+U.Player = Window:Tab("Player", "user")
 Window:TabDivider()
 U.Settings = Window:Tab("Settings", "settings")
 
@@ -1003,6 +1012,35 @@ U.displayBox:Toggle({
 
 U.espBotsBox = U.Visuals:Section("Bots", 2)
 H.botToggle(U.espBotsBox, "otp_esp_bots")
+
+U.moveBox = U.Player:Section("Movement", 1)
+if Movement then
+	U.moveBox:Toggle({ Text = "Walk Speed", Flag = "otp_walk_on", Default = false, Callback = function(state)
+		F.walkOn = state
+		Movement:WalkSpeed(state and F.walkValue or 16, "Humanoid")
+	end }):Keybind({ Default = "None", Flag = "otp_walk_key" })
+	H.S(U.moveBox, "Speed", "otp_walk_value", 16, 120, F.walkValue, 0, function(value)
+		F.walkValue = value
+		if F.walkOn then Movement:WalkSpeed(value, "Humanoid") end
+	end)
+	U.moveBox:Toggle({ Text = "Jump Power", Flag = "otp_jump_on", Default = false, Callback = function(state)
+		F.jumpOn = state
+		Movement:JumpPower(state and F.jumpValue or 50, "Humanoid")
+	end })
+	H.S(U.moveBox, "Power", "otp_jump_value", 50, 200, F.jumpValue, 0, function(value)
+		F.jumpValue = value
+		if F.jumpOn then Movement:JumpPower(value, "Humanoid") end
+	end)
+	U.moveBox:Toggle({ Text = "Fly", Flag = "otp_fly", Default = false, Callback = function(state)
+		Movement:Fly(state)
+	end }):Keybind({ Default = "None", Flag = "otp_fly_key" })
+	H.S(U.moveBox, "Fly Speed", "otp_fly_speed", 1, 20, 2, 1, function(value) Movement:SetFlySpeed(value) end)
+	H.T(U.moveBox, "Noclip", "otp_noclip", false, function(state) Movement:Noclip(state) end)
+	H.T(U.moveBox, "Infinite Jump", "otp_inf_jump", false, function(state) Movement:InfiniteJump(state) end)
+	H.T(U.moveBox, "Spider", "otp_spider", false, function(state) Movement:Spider(state) end)
+else
+	U.moveBox:Label("Movement module failed to load.", { Style = "dim" })
+end
 
 local SaveManager = Library.SaveManager
 local InterfaceManager = Library.InterfaceManager
